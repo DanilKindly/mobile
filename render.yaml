@@ -1,10 +1,8 @@
 services:
   - type: web
     name: kindly-messenger-api
-    runtime: dotnet
+    runtime: docker
     rootDir: .NETmessenger-master
-    buildCommand: dotnet publish src/NETmessenger.Web/NETmessenger.Web.csproj -c Release -o out
-    startCommand: dotnet out/NETmessenger.Web.dll
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
