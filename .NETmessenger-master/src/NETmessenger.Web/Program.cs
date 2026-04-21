@@ -3,11 +3,42 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using NETmessenger.Application.Abstractions.Auth;
 using NETmessenger.Infrastructure;
+using NETmessenger.Infrastructure.Persistence;
 using NETmessenger.Web.Hubs;
+using Microsoft.EntityFrameworkCore;
+using System.Collections.Generic;
 
 const string DevClientCorsPolicy = "DevClient";
 
 var builder = WebApplication.CreateBuilder(args);
+
+var defaultAllowedOrigins = new[]
+{
+    "http://localhost:5066",
+    "https://localhost:5066",
+    "http://localhost:5067",
+    "https://localhost:5067",
+    "http://localhost:5173",
+    "https://localhost:5173",
+    "http://127.0.0.1:5066",
+    "https://127.0.0.1:5066",
+    "http://127.0.0.1:5067",
+    "https://127.0.0.1:5067",
+    "http://127.0.0.1:5173",
+    "https://127.0.0.1:5173",
+    "https://front2-main.vercel.app",
+    "https://kindlydevelopment.vercel.app",
+};
+
+var configuredOrigins = builder.Configuration["Cors:AllowedOrigins"]
+    ?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    ?? Array.Empty<string>();
+
+var allowedOrigins = new HashSet<string>(defaultAllowedOrigins, StringComparer.OrdinalIgnoreCase);
+foreach (var origin in configuredOrigins)
+{
+    allowedOrigins.Add(origin);
+}
 
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
@@ -15,19 +46,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy(DevClientCorsPolicy, policy =>
     {
-        policy.WithOrigins(
-                "http://localhost:5066",
-                "https://localhost:5066",
-                "http://localhost:5067",
-                "https://localhost:5067",
-                "http://localhost:5173",
-                "https://localhost:5173",
-                "http://127.0.0.1:5066",
-                "https://127.0.0.1:5066",
-                "http://127.0.0.1:5067",
-                "https://127.0.0.1:5067",
-                "http://127.0.0.1:5173",
-                "https://127.0.0.1:5173")
+        policy.WithOrigins(allowedOrigins.ToArray())
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
@@ -78,6 +97,12 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    dbContext.Database.Migrate();
+}
 
 if (app.Environment.IsDevelopment())
 {
