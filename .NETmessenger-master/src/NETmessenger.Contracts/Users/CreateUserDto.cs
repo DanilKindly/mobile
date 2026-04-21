@@ -1,3 +1,3 @@
 namespace NETmessenger.Contracts.Users;
 
-public record CreateUserDto(string Nickname, string Name, string? PhoneNumber);
+public record CreateUserDto(string Login, string Password, string Username);

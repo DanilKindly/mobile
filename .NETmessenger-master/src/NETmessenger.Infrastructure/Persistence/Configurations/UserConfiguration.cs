@@ -10,18 +10,19 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
     {
         builder.HasKey(u => u.Id);
 
-        builder.Property(u => u.Nickname)
+        builder.Property(u => u.Login)
             .HasMaxLength(30)
             .IsRequired();
 
-        builder.HasIndex(u => u.Nickname)
+        builder.HasIndex(u => u.Login)
             .IsUnique();
 
-        builder.Property(u => u.Name)
+        builder.Property(u => u.Username)
             .HasMaxLength(50)
             .IsRequired();
 
-        builder.Property(u => u.PhoneNumber)
-            .HasMaxLength(20);
+        builder.Property(u => u.PasswordHash)
+            .HasMaxLength(256)
+            .IsRequired();
     }
 }

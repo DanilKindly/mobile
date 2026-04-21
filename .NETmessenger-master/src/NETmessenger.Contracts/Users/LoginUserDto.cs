@@ -1,3 +1,3 @@
 namespace NETmessenger.Contracts.Users;
 
-public record LoginUserDto (string Nickname, string Password); 
+public record LoginUserDto(string Login, string Password);

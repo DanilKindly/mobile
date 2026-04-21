@@ -31,7 +31,7 @@ public class JwtService : IJwtService
         Claim[] claims =
         [
             new("user_id", user.Id.ToString()),
-            new("nickname", user.Nickname),
+            new("login", user.Login),
         ];
 
         var token = new JwtSecurityToken(

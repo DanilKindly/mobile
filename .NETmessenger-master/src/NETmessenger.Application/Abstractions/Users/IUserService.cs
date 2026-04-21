@@ -5,6 +5,7 @@ namespace NETmessenger.Application.Abstractions.Users;
 public interface IUserService
 {
     Task<IReadOnlyCollection<GetUserDto>> GetAllAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<GetUserDto>> SearchByLoginAsync(string login, CancellationToken cancellationToken);
     Task<GetUserDto?> GetByIdAsync(Guid userId, CancellationToken cancellationToken);
     Task<GetUserDto> UpdateAsync(Guid userId, UpdateUserDto dto, CancellationToken cancellationToken);
 
