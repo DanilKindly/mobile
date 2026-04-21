@@ -1,0 +1,56 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# 
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NETmessenger.Domain", "src\NETmessenger.Domain\NETmessenger.Domain.csproj", "{1152941A-96C7-440E-8C0D-0771DFE24141}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{E257FA20-411D-4861-9E6E-1A669C3273E6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NETmessenger.Web", "src\NETmessenger.Web\NETmessenger.Web.csproj", "{F926235F-4E30-4942-B759-146143CC8279}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NETmessenger.Contracts", "src\NETmessenger.Contracts\NETmessenger.Contracts.csproj", "{4F742370-62FB-479E-A73B-5EC7C8C38FA0}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{033A2DFC-F012-447E-B72F-0531DC40A419}"
+	ProjectSection(SolutionItems) = preProject
+		Solution Items\.editorconfig = Solution Items\.editorconfig
+		Solution Items\Directory.Build.props = Solution Items\Directory.Build.props
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NETmessenger.Application", "src\NETmessenger.Application\NETmessenger.Application.csproj", "{823136E0-36DD-4642-B7D2-D0E2124419E0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NETmessenger.Infrastructure", "src\NETmessenger.Infrastructure\NETmessenger.Infrastructure.csproj", "{033DD2FF-99C7-4A63-BC57-6D2CEA549009}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1152941A-96C7-440E-8C0D-0771DFE24141}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1152941A-96C7-440E-8C0D-0771DFE24141}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1152941A-96C7-440E-8C0D-0771DFE24141}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1152941A-96C7-440E-8C0D-0771DFE24141}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F926235F-4E30-4942-B759-146143CC8279}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F926235F-4E30-4942-B759-146143CC8279}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F926235F-4E30-4942-B759-146143CC8279}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F926235F-4E30-4942-B759-146143CC8279}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4F742370-62FB-479E-A73B-5EC7C8C38FA0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4F742370-62FB-479E-A73B-5EC7C8C38FA0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4F742370-62FB-479E-A73B-5EC7C8C38FA0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4F742370-62FB-479E-A73B-5EC7C8C38FA0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{823136E0-36DD-4642-B7D2-D0E2124419E0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{823136E0-36DD-4642-B7D2-D0E2124419E0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{823136E0-36DD-4642-B7D2-D0E2124419E0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{823136E0-36DD-4642-B7D2-D0E2124419E0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{033DD2FF-99C7-4A63-BC57-6D2CEA549009}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{033DD2FF-99C7-4A63-BC57-6D2CEA549009}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{033DD2FF-99C7-4A63-BC57-6D2CEA549009}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{033DD2FF-99C7-4A63-BC57-6D2CEA549009}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{1152941A-96C7-440E-8C0D-0771DFE24141} = {E257FA20-411D-4861-9E6E-1A669C3273E6}
+		{F926235F-4E30-4942-B759-146143CC8279} = {E257FA20-411D-4861-9E6E-1A669C3273E6}
+		{4F742370-62FB-479E-A73B-5EC7C8C38FA0} = {E257FA20-411D-4861-9E6E-1A669C3273E6}
+		{823136E0-36DD-4642-B7D2-D0E2124419E0} = {E257FA20-411D-4861-9E6E-1A669C3273E6}
+		{033DD2FF-99C7-4A63-BC57-6D2CEA549009} = {E257FA20-411D-4861-9E6E-1A669C3273E6}
+	EndGlobalSection
+EndGlobal
