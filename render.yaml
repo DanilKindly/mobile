@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: kindly-messenger-api
+    runtime: dotnet
+    rootDir: .NETmessenger-master
+    buildCommand: dotnet publish src/NETmessenger.Web/NETmessenger.Web.csproj -c Release -o out
+    startCommand: dotnet out/NETmessenger.Web.dll
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://0.0.0.0:$PORT
+      - key: Cors__AllowedOrigins
+        value: https://kindlydevelopment.vercel.app,https://front2-main.vercel.app
+      - key: ConnectionStrings__DbConnection
+        fromDatabase:
+          name: kindly-messenger-db
+          property: connectionString
+
+databases:
+  - name: kindly-messenger-db
+    databaseName: messagerdb
+    user: user
