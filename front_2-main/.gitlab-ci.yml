@@ -1,0 +1,32 @@
+stages:
+  - build
+  - trigger
+
+build:
+  stage: build
+  tags:
+      - shared
+
+  before_script:
+    - docker login -u gitlab-ci-token -p "$CI_JOB_TOKEN" "$CI_REGISTRY"
+
+  variables:
+    IMAGE_NAME: $CI_REGISTRY_IMAGE
+    TAG: $CI_COMMIT_SHORT_SHA
+
+  script:
+    - echo "BUILD"
+    - docker build -t $IMAGE_NAME:$TAG .
+    - docker tag $IMAGE_NAME:$TAG $IMAGE_NAME:latest
+    - docker push $IMAGE_NAME:$TAG
+    - docker push $IMAGE_NAME:latest
+
+trigger:
+  stage: trigger
+  trigger:
+    project: social-network5825209/infra
+    branch: main
+    strategy: depend
+  variables:
+    IMAGE: $CI_REGISTRY_IMAGE
+    TAG: $CI_COMMIT_SHORT_SHA
