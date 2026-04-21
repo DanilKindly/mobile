@@ -16,8 +16,7 @@ RUN dotnet publish src/NETmessenger.Web/NETmessenger.Web.csproj -c Release -o /a
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 
-ENV ASPNETCORE_URLS=http://0.0.0.0:10000
-EXPOSE 10000
+EXPOSE 8080
 
 COPY --from=build /app/publish ./
-ENTRYPOINT ["dotnet", "NETmessenger.Web.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=http://0.0.0.0:${PORT:-8080} dotnet NETmessenger.Web.dll"]
