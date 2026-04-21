@@ -116,10 +116,10 @@ app.UseStaticFiles();
 app.MapGet("/", () => Results.Ok(new { status = "ok", service = "kindly-messenger-api" }));
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 
-app.MapControllers();
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat");
 
 

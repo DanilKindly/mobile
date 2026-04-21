@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import messengerApi from '@/api/messenger'
@@ -7,76 +7,104 @@ import messengerApi from '@/api/messenger'
 const router = useRouter()
 const themeStore = useThemeStore()
 
-const users = ref([])
-const isLoading = ref(true)
-const showNewUserInput = ref(false)
-const newUsername = ref('')
+const activeMode = ref('login')
+const isLoading = ref(false)
+const errorText = ref('')
 
-onMounted(async () => {
+const loginForm = ref({
+  login: '',
+  password: '',
+})
+
+const registerForm = ref({
+  login: '',
+  password: '',
+  username: '',
+})
+
+const title = computed(() => (activeMode.value === 'login' ? 'Вход' : 'Регистрация'))
+
+function validateLoginInput(login) {
+  if (!login?.trim()) return 'Введите login.'
+  if (login.trim().length < 3) return 'Login должен быть минимум 3 символа.'
+  if (!/^[a-zA-Z0-9_-]+$/.test(login.trim())) return 'Login: только буквы, цифры, "_" и "-".'
+  return ''
+}
+
+function validatePasswordInput(password) {
+  if (!password?.trim()) return 'Введите password.'
+  if (password.trim().length < 6) return 'Password должен быть минимум 6 символов.'
+  return ''
+}
+
+function validateUsernameInput(username) {
+  if (!username?.trim()) return 'Введите username.'
+  if (username.trim().length < 2) return 'Username должен быть минимум 2 символа.'
+  return ''
+}
+
+async function submitLogin() {
+  errorText.value = ''
+
+  const loginError = validateLoginInput(loginForm.value.login)
+  if (loginError) {
+    errorText.value = loginError
+    return
+  }
+
+  const passwordError = validatePasswordInput(loginForm.value.password)
+  if (passwordError) {
+    errorText.value = passwordError
+    return
+  }
+
   try {
-    const allUsers = await messengerApi.getUsers()
-    users.value = allUsers.map(u => ({
-      id: u.userId || u.UserId,
-      nickname: u.nickname || u.Nickname,
-      name: u.name || u.Name || (u.nickname || u.Nickname)
-    }))
-  } catch (e) {
-    console.error('Failed to load users:', e)
+    isLoading.value = true
+    await messengerApi.loginUser({
+      login: loginForm.value.login.trim(),
+      password: loginForm.value.password,
+    })
+    router.push('/chats')
+  } catch (error) {
+    errorText.value = error?.response?.data?.error || 'Не удалось войти. Проверьте login и password.'
   } finally {
     isLoading.value = false
   }
-})
-
-async function selectUser(user) {
-  sessionStorage.setItem('ois_current_user', JSON.stringify({
-    userId: user.id,
-    nickname: user.nickname,
-    name: user.name
-  }))
-  router.push('/chats')
 }
 
-async function createAndSelectUser() {
-  if (!newUsername.value.trim()) return
-  
+async function submitRegister() {
+  errorText.value = ''
+
+  const loginError = validateLoginInput(registerForm.value.login)
+  if (loginError) {
+    errorText.value = loginError
+    return
+  }
+
+  const passwordError = validatePasswordInput(registerForm.value.password)
+  if (passwordError) {
+    errorText.value = passwordError
+    return
+  }
+
+  const usernameError = validateUsernameInput(registerForm.value.username)
+  if (usernameError) {
+    errorText.value = usernameError
+    return
+  }
+
   try {
-    const newUser = await messengerApi.createUser({
-      nickname: newUsername.value.trim(),
-      name: newUsername.value.trim(),
-      phoneNumber: null
+    isLoading.value = true
+    await messengerApi.registerUser({
+      login: registerForm.value.login.trim(),
+      password: registerForm.value.password,
+      username: registerForm.value.username.trim(),
     })
-    
-    sessionStorage.setItem('ois_current_user', JSON.stringify({
-      userId: newUser.userId || newUser.UserId,
-      nickname: newUser.nickname || newUser.Nickname,
-      name: newUser.name || newUser.Name
-    }))
-    
-    newUsername.value = ''
-    showNewUserInput.value = false
-    await loadUsers()
     router.push('/chats')
-  } catch (e) {
-    console.error('Failed to create user:', e)
-  }
-}
-
-async function loadUsers() {
-  try {
-    const allUsers = await messengerApi.getUsers()
-    users.value = allUsers.map(u => ({
-      id: u.userId || u.UserId,
-      nickname: u.nickname || u.Nickname,
-      name: u.name || u.Name || (u.nickname || u.Nickname)
-    }))
-  } catch (e) {
-    console.error('Failed to load users:', e)
-  }
-}
-
-function handleKeyPress(event) {
-  if (event.key === 'Enter') {
-    createAndSelectUser()
+  } catch (error) {
+    errorText.value = error?.response?.data?.error || 'Не удалось зарегистрироваться.'
+  } finally {
+    isLoading.value = false
   }
 }
 </script>
@@ -87,67 +115,89 @@ function handleKeyPress(event) {
       <h1 class="text-3xl font-bold text-center mb-2" :class="themeStore.darkTheme ? 'text-white' : 'text-gray-800'">
         Мессенджер
       </h1>
-      <p class="text-center mb-8" :class="themeStore.darkTheme ? 'text-gray-400' : 'text-gray-500'">
-        Выберите пользователя для входа
+      <p class="text-center mb-6" :class="themeStore.darkTheme ? 'text-gray-400' : 'text-gray-500'">
+        {{ title }}
       </p>
 
-      <!-- Существующие пользователи -->
-      <div v-if="!isLoading && users.length > 0" class="space-y-3 mb-6">
+      <div class="flex gap-2 mb-6">
         <button
-          v-for="user in users"
-          :key="user.id"
-          @click="selectUser(user)"
-          class="w-full p-4 rounded-xl flex items-center gap-4 transition-all duration-200 hover:scale-[1.02]"
-          :class="themeStore.darkTheme ? 'bg-[#2a2a2a] hover:bg-[#333]' : 'bg-gray-50 hover:bg-gray-100'"
-        >
-          <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold">
-            {{ user.nickname[0].toUpperCase() }}
-          </div>
-          <div class="text-left">
-            <div class="font-medium" :class="themeStore.darkTheme ? 'text-white' : 'text-gray-800'">{{ user.name }}</div>
-            <div class="text-sm" :class="themeStore.darkTheme ? 'text-gray-400' : 'text-gray-500'">@{{ user.nickname }}</div>
-          </div>
-        </button>
-      </div>
-
-      <p v-if="!isLoading && users.length === 0" class="text-center mb-6" :class="themeStore.darkTheme ? 'text-gray-400' : 'text-gray-500'">
-        Нет пользователей
-      </p>
-
-      <!-- Кнопка создания нового -->
-      <div v-if="!showNewUserInput">
-        <button
-          @click="showNewUserInput = true"
-          class="w-full py-3 rounded-xl border-2 border-dashed transition-colors"
-          :class="themeStore.darkTheme ? 'border-[#333] text-gray-400 hover:border-[#444] hover:text-white' : 'border-gray-300 text-gray-500 hover:border-gray-400 hover:text-gray-700'"
-        >
-          + Новый пользователь
-        </button>
-      </div>
-      <div v-else class="flex gap-2">
-        <input
-          v-model="newUsername"
-          @keyup.enter="createAndSelectUser"
-          type="text"
-          placeholder="Введите имя"
-          class="flex-1 px-4 py-3 rounded-xl outline-none"
-          :class="themeStore.darkTheme ? 'bg-[#2a2a2a] text-white placeholder-gray-500' : 'bg-gray-100 text-gray-800 placeholder-gray-400'"
-          autofocus
-        />
-        <button
-          @click="createAndSelectUser"
-          class="px-6 py-3 rounded-xl bg-blue-500 text-white font-medium hover:bg-blue-600"
+          class="flex-1 py-2 rounded-xl transition-colors"
+          :class="activeMode === 'login'
+            ? 'bg-blue-500 text-white'
+            : (themeStore.darkTheme ? 'bg-[#2a2a2a] text-gray-300' : 'bg-gray-200 text-gray-600')"
+          @click="activeMode = 'login'; errorText = ''"
         >
           Войти
         </button>
         <button
-          @click="showNewUserInput = false; newUsername = ''"
-          class="px-4 py-3 rounded-xl"
-          :class="themeStore.darkTheme ? 'bg-[#333] text-gray-400 hover:bg-[#444]' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'"
+          class="flex-1 py-2 rounded-xl transition-colors"
+          :class="activeMode === 'register'
+            ? 'bg-blue-500 text-white'
+            : (themeStore.darkTheme ? 'bg-[#2a2a2a] text-gray-300' : 'bg-gray-200 text-gray-600')"
+          @click="activeMode = 'register'; errorText = ''"
         >
-          ✕
+          Регистрация
         </button>
       </div>
+
+      <form v-if="activeMode === 'login'" class="space-y-3" @submit.prevent="submitLogin">
+        <input
+          v-model="loginForm.login"
+          type="text"
+          placeholder="login"
+          class="w-full px-4 py-3 rounded-xl outline-none"
+          :class="themeStore.darkTheme ? 'bg-[#2a2a2a] text-white placeholder-gray-500' : 'bg-gray-100 text-gray-800 placeholder-gray-400'"
+        >
+        <input
+          v-model="loginForm.password"
+          type="password"
+          placeholder="password"
+          class="w-full px-4 py-3 rounded-xl outline-none"
+          :class="themeStore.darkTheme ? 'bg-[#2a2a2a] text-white placeholder-gray-500' : 'bg-gray-100 text-gray-800 placeholder-gray-400'"
+        >
+        <button
+          class="w-full py-3 rounded-xl bg-blue-500 text-white font-medium hover:bg-blue-600 disabled:opacity-60"
+          :disabled="isLoading"
+          type="submit"
+        >
+          {{ isLoading ? 'Входим...' : 'Войти' }}
+        </button>
+      </form>
+
+      <form v-else class="space-y-3" @submit.prevent="submitRegister">
+        <input
+          v-model="registerForm.login"
+          type="text"
+          placeholder="login"
+          class="w-full px-4 py-3 rounded-xl outline-none"
+          :class="themeStore.darkTheme ? 'bg-[#2a2a2a] text-white placeholder-gray-500' : 'bg-gray-100 text-gray-800 placeholder-gray-400'"
+        >
+        <input
+          v-model="registerForm.username"
+          type="text"
+          placeholder="username"
+          class="w-full px-4 py-3 rounded-xl outline-none"
+          :class="themeStore.darkTheme ? 'bg-[#2a2a2a] text-white placeholder-gray-500' : 'bg-gray-100 text-gray-800 placeholder-gray-400'"
+        >
+        <input
+          v-model="registerForm.password"
+          type="password"
+          placeholder="password"
+          class="w-full px-4 py-3 rounded-xl outline-none"
+          :class="themeStore.darkTheme ? 'bg-[#2a2a2a] text-white placeholder-gray-500' : 'bg-gray-100 text-gray-800 placeholder-gray-400'"
+        >
+        <button
+          class="w-full py-3 rounded-xl bg-blue-500 text-white font-medium hover:bg-blue-600 disabled:opacity-60"
+          :disabled="isLoading"
+          type="submit"
+        >
+          {{ isLoading ? 'Создаем аккаунт...' : 'Зарегистрироваться' }}
+        </button>
+      </form>
+
+      <p v-if="errorText" class="mt-4 text-sm text-red-400">
+        {{ errorText }}
+      </p>
     </div>
   </div>
 </template>

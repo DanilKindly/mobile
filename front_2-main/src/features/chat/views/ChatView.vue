@@ -5,6 +5,7 @@ import ChatHeader from '../components/ChatHeader.vue'
 import ChatInput from '../components/ChatInput.vue'
 import Message from '../components/Message.vue'
 import ChatList from '../components/ChatList.vue'
+import UserSearchDialog from '../components/UserSearchDialog.vue'
 import { useChatStore } from '@/stores/chat'
 import { useMessageStore } from '@/stores/message'
 import { useThemeStore } from '@/stores/theme'
@@ -18,16 +19,17 @@ const themeStore = useThemeStore()
 const currentUser = ref(null)
 const chatId = ref(null)
 const chatName = ref(null)
+const showUserSearch = ref(false)
 const messagesContainer = ref(null)
 let signalRConnection = null
 
 function handleLogout() {
-  sessionStorage.removeItem('ois_current_user')
+  messengerApi.logout()
   router.push('/')
 }
 
 function getCurrentUserId() {
-  return currentUser.value?.userId ?? currentUser.value?.UserId ?? null
+  return currentUser.value?.userId ?? null
 }
 
 function getMessagePreview(message) {
@@ -37,39 +39,18 @@ function getMessagePreview(message) {
   return message.text ?? message.Text ?? ''
 }
 
-async function handleCreateChat() {
+function handleCreateChat() {
+  showUserSearch.value = true
+}
+
+async function selectLoginAndCreateChat(login) {
   try {
-    const allUsers = await messengerApi.getUsers()
     const currentUserId = getCurrentUserId()
-    const otherUsers = allUsers
-      .filter((u) => {
-        const userId = u.userId || u.UserId
-        return userId !== currentUserId
-      })
-      .map((u) => ({
-        id: u.userId || u.UserId,
-        nickname: u.nickname || u.Nickname,
-        name: u.name || u.Name,
-      }))
-
-    if (otherUsers.length === 0) {
-      alert('Нет других пользователей для создания чата')
-      return
-    }
-
-    if (otherUsers.length === 1) {
-      const createdChatId = await messengerApi.getOrCreateChatWithUser(currentUserId, otherUsers[0].nickname)
-      router.push(`/chat/${createdChatId}`)
-      return
-    }
-
-    const selected = prompt(`Выберите собеседника:\n${otherUsers.map((u) => `- ${u.nickname}`).join('\n')}`)
-    if (selected) {
-      const createdChatId = await messengerApi.getOrCreateChatWithUser(currentUserId, selected)
-      router.push(`/chat/${createdChatId}`)
-    }
+    const createdChatId = await messengerApi.getOrCreateChatWithUserByLogin(currentUserId, login)
+    showUserSearch.value = false
+    router.push(`/chat/${createdChatId}`)
   } catch (e) {
-    console.error('Failed to create chat:', e)
+    alert(e?.response?.data?.error || e?.message || 'Не удалось создать чат.')
   }
 }
 
@@ -86,18 +67,12 @@ watch(
 const routeChatId = computed(() => route.params.chatId)
 
 onMounted(async () => {
-  try {
-    const cached = sessionStorage.getItem('ois_current_user')
-    if (cached) {
-      currentUser.value = JSON.parse(cached)
-    }
-    if (!currentUser.value) {
-      currentUser.value = await messengerApi.getOrCreateCurrentUser()
-    }
-    await chatStore.loadChats()
-  } catch (e) {
-    console.error('Failed to init current user for backend:', e)
+  currentUser.value = messengerApi.getCurrentUser()
+  if (!currentUser.value) {
+    router.push('/')
+    return
   }
+  await chatStore.loadChats()
 })
 
 onBeforeUnmount(async () => {
@@ -169,19 +144,19 @@ watch(
     ;(async () => {
       try {
         if (!currentUser.value) {
-          currentUser.value = await messengerApi.getOrCreateCurrentUser()
+          currentUser.value = messengerApi.getCurrentUser()
         }
         const currentUserId = getCurrentUserId()
 
         const chat = await messengerApi.getChatById(newChatId)
         chatId.value = chat.chatId ?? chat.ChatId
 
-        const participantIds = chat.participantUserIds ?? chat.ParticipantUserIds
+        const participantIds = chat.participantUserIds ?? chat.ParticipantUserIds ?? []
         const otherUserId = participantIds.find((id) => id !== currentUserId)
         if (otherUserId) {
           const users = await messengerApi.getUsers()
-          const otherUser = users.find((u) => (u.userId || u.UserId) === otherUserId)
-          chatName.value = otherUser ? otherUser.nickname || otherUser.Nickname : 'Собеседник'
+          const otherUser = users.find((u) => u.userId === otherUserId)
+          chatName.value = otherUser ? otherUser.username || otherUser.login : 'Собеседник'
         } else {
           chatName.value = chat.name ?? chat.Name ?? 'Чат'
         }
@@ -200,13 +175,6 @@ watch(
 
           signalRConnection.on('MessagesRead', () => {
             messageStore.markMessagesAsRead()
-          })
-
-          signalRConnection.on('UserJoinedChat', (userId) => {
-            const currentUserIdLocal = getCurrentUserId()
-            if (userId !== currentUserIdLocal) {
-              messageStore.markMessagesAsRead()
-            }
           })
         }
 
@@ -273,5 +241,12 @@ watch(
     >
       <p :class="themeStore.darkTheme ? 'text-[#6D7F8F]' : 'text-[#868686]'">Выберите чат для начала общения</p>
     </div>
+
+    <UserSearchDialog
+      v-if="showUserSearch"
+      :dark-theme="themeStore.darkTheme"
+      @close="showUserSearch = false"
+      @select-login="selectLoginAndCreateChat"
+    />
   </div>
 </template>

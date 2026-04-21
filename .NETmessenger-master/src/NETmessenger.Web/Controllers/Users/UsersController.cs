@@ -10,7 +10,6 @@ namespace NETmessenger.Web.Controllers.Users;
 [Route("api/users")]
 public class UsersController(IUserService userService, IConfiguration configuration) : ControllerBase
 {
-
     private readonly IConfiguration _configuration = configuration;
 
     [HttpGet]
@@ -18,6 +17,22 @@ public class UsersController(IUserService userService, IConfiguration configurat
     {
         var users = await userService.GetAllAsync(cancellationToken);
         return Ok(users);
+    }
+
+    [HttpGet("search")]
+    public async Task<ActionResult<IReadOnlyCollection<GetUserDto>>> SearchByLogin(
+        [FromQuery] string login,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var users = await userService.SearchByLoginAsync(login, cancellationToken);
+            return Ok(users);
+        }
+        catch (DomainValidationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     [HttpGet("{userId:guid}")]
@@ -28,35 +43,9 @@ public class UsersController(IUserService userService, IConfiguration configurat
         return user is null ? NotFound() : Ok(user);
     }
 
-    [HttpPost]
-    public async Task<ActionResult<GetUserDto>> Create(
-        [FromBody] CreateUserDto dto,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            // Backward-compatible endpoint for old frontend flow.
-            var registerResult = await userService.RegisterAsync(
-                new RegisterUserDto(dto.Nickname, dto.Name, dto.PhoneNumber, dto.Nickname),
-                cancellationToken);
-
-            var createdUser = await userService.GetByIdAsync(registerResult.UserId, cancellationToken);
-            return createdUser is null ? NotFound() : Ok(createdUser);
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(new { error = ex.Message });
-        }
-        catch (DomainValidationException ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
-    }
-
-
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponseDto>> Register(
-        [FromBody] RegisterUserDto dto, 
+        [FromBody] RegisterUserDto dto,
         CancellationToken cancellationToken)
     {
         try
@@ -76,7 +65,7 @@ public class UsersController(IUserService userService, IConfiguration configurat
 
     [HttpPost("login")]
     public async Task<ActionResult<AuthResponseDto>> Login(
-        [FromBody] LoginUserDto dto, 
+        [FromBody] LoginUserDto dto,
         CancellationToken cancellationToken)
     {
         try
@@ -84,7 +73,7 @@ public class UsersController(IUserService userService, IConfiguration configurat
             var result = await userService.LoginAsync(dto, cancellationToken);
 
             var expirationHours = int.TryParse(
-                _configuration["JwtSettings:TokenExpirationHours"], 
+                _configuration["JwtSettings:TokenExpirationHours"],
                 out var h) ? h : 12;
 
             Response.Cookies.Append("auth_token", result.Token, new CookieOptions
@@ -104,7 +93,6 @@ public class UsersController(IUserService userService, IConfiguration configurat
             return Unauthorized(new { error = ex.Message });
         }
     }
-
 
     [HttpPut("{userId:guid}")]
     [Authorize]
