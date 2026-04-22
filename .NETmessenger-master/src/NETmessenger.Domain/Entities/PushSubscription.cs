@@ -14,5 +14,6 @@ public class PushSubscription
     public DateTime UpdatedAt { get; set; }
     public DateTime? LastSuccessAt { get; set; }
     public DateTime? LastFailureAt { get; set; }
+    public string? LastErrorCode { get; set; }
+    public string? LastErrorMessage { get; set; }
 }
-

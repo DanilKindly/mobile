@@ -18,9 +18,29 @@ const props = defineProps({
     type: Object,
     default: null,
   },
+  pushStatus: {
+    type: String,
+    default: 'subscribe_failed',
+  },
+  pushBusy: {
+    type: Boolean,
+    default: false,
+  },
+  pushRequiresHomeScreen: {
+    type: Boolean,
+    default: false,
+  },
+  pushEndpointMasked: {
+    type: String,
+    default: null,
+  },
+  pushLastErrorCode: {
+    type: String,
+    default: null,
+  },
 })
 
-const emit = defineEmits(['select-chat', 'logout', 'create-chat'])
+const emit = defineEmits(['select-chat', 'logout', 'create-chat', 'reconnect-push'])
 const themeStore = useThemeStore()
 
 function normalizeId(id) {
@@ -45,6 +65,19 @@ function logout() {
 
 function createChat() {
   emit('create-chat')
+}
+
+function reconnectPush() {
+  emit('reconnect-push')
+}
+
+function pushStatusLabel(value) {
+  if (value === 'subscribed') return 'подключены'
+  if (value === 'unsupported') return 'не поддерживаются'
+  if (value === 'permission_denied') return 'запрещены'
+  if (value === 'no_user') return 'нужен вход'
+  if (value === 'push_not_configured') return 'сервер не настроен'
+  return 'ошибка подключения'
 }
 </script>
 
@@ -94,6 +127,47 @@ function createChat() {
           @click="logout"
         >
           ×
+        </button>
+      </div>
+
+      <div
+        class="mt-3 rounded-lg px-3 py-2 border"
+        :class="darkTheme ? 'border-[#263748] bg-[#141f2b]' : 'border-gray-200 bg-gray-50'"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-xs font-medium" :class="darkTheme ? 'text-gray-200' : 'text-gray-700'">Уведомления</span>
+          <span class="text-[11px]" :class="pushStatus === 'subscribed' ? 'text-green-500' : (darkTheme ? 'text-amber-300' : 'text-amber-600')">
+            {{ pushStatusLabel(pushStatus) }}
+          </span>
+        </div>
+        <div
+          v-if="pushRequiresHomeScreen"
+          class="mt-1 text-[11px]"
+          :class="darkTheme ? 'text-amber-300' : 'text-amber-700'"
+        >
+          Для iPhone открой через «На экран Домой».
+        </div>
+        <div
+          v-if="pushEndpointMasked"
+          class="mt-1 text-[11px] truncate"
+          :class="darkTheme ? 'text-gray-400' : 'text-gray-500'"
+          :title="pushEndpointMasked"
+        >
+          {{ pushEndpointMasked }}
+        </div>
+        <div
+          v-if="pushLastErrorCode"
+          class="mt-1 text-[11px] truncate"
+          :class="darkTheme ? 'text-red-300' : 'text-red-600'"
+        >
+          {{ pushLastErrorCode }}
+        </div>
+        <button
+          class="mt-2 text-[11px] px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60"
+          :disabled="pushBusy"
+          @click="reconnectPush"
+        >
+          {{ pushBusy ? 'Подключаем...' : 'Переподключить уведомления' }}
         </button>
       </div>
     </div>

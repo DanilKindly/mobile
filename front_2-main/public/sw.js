@@ -1,11 +1,26 @@
 /* eslint-disable no-restricted-globals */
+const SW_VERSION = '2026-04-23-push-recovery-v1'
+
+self.addEventListener('install', () => {
+  self.skipWaiting()
+})
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim())
+})
+
+self.addEventListener('message', (event) => {
+  if (event?.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting()
+  }
+})
 
 self.addEventListener('push', (event) => {
   let payload = {}
   try {
     payload = event.data ? event.data.json() : {}
   } catch {
-    payload = { body: event.data?.text() || 'Новое сообщение' }
+    payload = { body: event.data?.text() || 'New message' }
   }
 
   event.waitUntil(handlePush(payload))
@@ -14,20 +29,19 @@ self.addEventListener('push', (event) => {
 async function handlePush(payload) {
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
   const hasVisibleClient = windows.some((client) => client.visibilityState === 'visible')
-
   if (hasVisibleClient) {
     return
   }
 
   const title = payload.title || 'Kindly Messenger'
-  const body = payload.body || 'Новое сообщение'
+  const body = payload.body || 'New message'
   const data = payload.data || {}
 
   await self.registration.showNotification(title, {
     body,
     icon: payload.icon || '/icon-192.png',
     badge: payload.badge || '/icon-192.png',
-    tag: payload.tag || `chat-${data.chatId || 'general'}`,
+    tag: payload.tag || `chat-${data.chatId || 'general'}-${SW_VERSION}`,
     data,
     renotify: true,
   })

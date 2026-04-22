@@ -44,6 +44,34 @@ public class PushController(IPushNotificationService pushNotificationService) : 
     }
 
     [Authorize]
+    [HttpGet("status")]
+    public async Task<ActionResult<PushSubscriptionStatusDto>> GetStatus(CancellationToken cancellationToken)
+    {
+        if (!TryGetAuthorizedUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var status = await pushNotificationService.GetStatusAsync(userId, cancellationToken);
+        return Ok(status);
+    }
+
+    [Authorize]
+    [HttpPost("debug/subscribe-failure")]
+    public async Task<IActionResult> DebugSubscribeFailure(
+        [FromBody] PushSubscribeFailureDto dto,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetAuthorizedUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        await pushNotificationService.TrackClientSubscribeFailureAsync(userId, dto, cancellationToken);
+        return NoContent();
+    }
+
+    [Authorize]
     [HttpDelete("subscriptions")]
     public async Task<IActionResult> DeleteSubscription(
         [FromBody] PushSubscriptionDeleteRequestDto dto,
@@ -64,4 +92,3 @@ public class PushController(IPushNotificationService pushNotificationService) : 
         return Guid.TryParse(raw, out userId);
     }
 }
-

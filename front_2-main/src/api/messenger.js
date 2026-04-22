@@ -339,6 +339,15 @@ export const messengerApi = {
     })
   },
 
+  async getPushStatus() {
+    const response = await api.get('/api/push/status')
+    return response.data ?? null
+  },
+
+  async reportPushSubscribeFailure(payload) {
+    await api.post('/api/push/debug/subscribe-failure', payload)
+  },
+
   async searchUsersByLogin(login) {
     const response = await api.get('/api/users/search', {
       params: { login },

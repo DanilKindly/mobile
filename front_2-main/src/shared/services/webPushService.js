@@ -3,6 +3,15 @@ import messengerApi from '@/api/messenger'
 let serviceWorkerRegistrationPromise = null
 let syncInFlight = null
 
+export const PUSH_STATUS = {
+  UNSUPPORTED: 'unsupported',
+  PERMISSION_DENIED: 'permission_denied',
+  NO_USER: 'no_user',
+  PUSH_NOT_CONFIGURED: 'push_not_configured',
+  SUBSCRIBED: 'subscribed',
+  SUBSCRIBE_FAILED: 'subscribe_failed',
+}
+
 function canUseWebPush() {
   return typeof window !== 'undefined' &&
     window.isSecureContext &&
@@ -60,6 +69,17 @@ async function ensureServiceWorkerRegistration() {
   return serviceWorkerRegistrationPromise
 }
 
+function isStandaloneMode() {
+  const mediaStandalone = typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches
+  const navigatorStandalone = typeof navigator !== 'undefined' && navigator.standalone === true
+  return mediaStandalone || navigatorStandalone
+}
+
+function isLikelyIphone() {
+  const ua = navigator?.userAgent || ''
+  return /iPhone/i.test(ua)
+}
+
 export async function hasActiveWebPushSubscription() {
   if (!canUseWebPush()) return false
 
@@ -74,51 +94,84 @@ export async function hasActiveWebPushSubscription() {
   }
 }
 
+async function reportSubscribeFailure(error) {
+  const currentUser = messengerApi.getCurrentUser()
+  if (!currentUser?.userId) return
+
+  const errorName = error?.name || 'PushSubscribeError'
+  const errorMessage = error?.message || String(error || 'Unknown error')
+  try {
+    await messengerApi.reportPushSubscribeFailure({
+      errorName,
+      errorMessage,
+      userAgent: navigator.userAgent,
+      isStandalone: isStandaloneMode(),
+    })
+  } catch (reportError) {
+    console.warn('Failed to report push subscribe failure:', reportError)
+  }
+}
+
+async function subscribeAndUpsert(registration) {
+  let subscription = await registration.pushManager.getSubscription()
+
+  if (!subscription) {
+    const keyResponse = await messengerApi.getPushVapidPublicKey()
+    const vapidPublicKey = keyResponse?.publicKey || keyResponse?.PublicKey
+    if (!vapidPublicKey) {
+      return { status: PUSH_STATUS.PUSH_NOT_CONFIGURED }
+    }
+
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+    })
+  }
+
+  const endpoint = subscription.endpoint
+  const p256dh = extractKey(subscription, 'p256dh')
+  const auth = extractKey(subscription, 'auth')
+  if (!endpoint || !p256dh || !auth) {
+    return { status: PUSH_STATUS.SUBSCRIBE_FAILED, error: new Error('Invalid push subscription keys') }
+  }
+
+  await messengerApi.upsertPushSubscription({
+    endpoint,
+    p256dh,
+    auth,
+    userAgent: navigator.userAgent,
+  })
+
+  return { status: PUSH_STATUS.SUBSCRIBED, endpoint }
+}
+
 export async function ensureWebPushSubscription() {
-  if (!canUseWebPush()) return { status: 'unsupported' }
-  if (Notification.permission !== 'granted') return { status: Notification.permission }
+  if (!canUseWebPush()) return { status: PUSH_STATUS.UNSUPPORTED }
+  if (Notification.permission !== 'granted') {
+    return {
+      status: Notification.permission === 'denied'
+        ? PUSH_STATUS.PERMISSION_DENIED
+        : PUSH_STATUS.SUBSCRIBE_FAILED,
+    }
+  }
 
   const currentUser = messengerApi.getCurrentUser()
   if (!currentUser?.userId) {
-    return { status: 'no-user' }
+    return { status: PUSH_STATUS.NO_USER }
   }
 
   if (syncInFlight) return syncInFlight
 
   syncInFlight = (async () => {
-    const registration = await ensureServiceWorkerRegistration()
-    if (!registration) return { status: 'sw-unavailable' }
-
-    let subscription = await registration.pushManager.getSubscription()
-
-    if (!subscription) {
-      const keyResponse = await messengerApi.getPushVapidPublicKey()
-      const vapidPublicKey = keyResponse?.publicKey || keyResponse?.PublicKey
-      if (!vapidPublicKey) {
-        return { status: 'push-not-configured' }
-      }
-
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-      })
+    try {
+      const registration = await ensureServiceWorkerRegistration()
+      if (!registration) return { status: PUSH_STATUS.UNSUPPORTED }
+      return await subscribeAndUpsert(registration)
+    } catch (error) {
+      console.error('ensureWebPushSubscription failed:', error)
+      await reportSubscribeFailure(error)
+      return { status: PUSH_STATUS.SUBSCRIBE_FAILED, error }
     }
-
-    const endpoint = subscription.endpoint
-    const p256dh = extractKey(subscription, 'p256dh')
-    const auth = extractKey(subscription, 'auth')
-    if (!endpoint || !p256dh || !auth) {
-      return { status: 'invalid-subscription' }
-    }
-
-    await messengerApi.upsertPushSubscription({
-      endpoint,
-      p256dh,
-      auth,
-      userAgent: navigator.userAgent,
-    })
-
-    return { status: 'subscribed' }
   })().finally(() => {
     syncInFlight = null
   })
@@ -126,16 +179,79 @@ export async function ensureWebPushSubscription() {
   return syncInFlight
 }
 
-export async function bootstrapWebPush() {
-  if (!canUseWebPush()) return
+export async function forceResubscribe() {
+  if (!canUseWebPush()) return { status: PUSH_STATUS.UNSUPPORTED }
+  if (Notification.permission !== 'granted') {
+    return {
+      status: Notification.permission === 'denied'
+        ? PUSH_STATUS.PERMISSION_DENIED
+        : PUSH_STATUS.SUBSCRIBE_FAILED,
+    }
+  }
+
+  const currentUser = messengerApi.getCurrentUser()
+  if (!currentUser?.userId) {
+    return { status: PUSH_STATUS.NO_USER }
+  }
 
   try {
-    await ensureServiceWorkerRegistration()
-    if (Notification.permission === 'granted') {
-      await ensureWebPushSubscription()
+    const registration = await ensureServiceWorkerRegistration()
+    if (!registration) return { status: PUSH_STATUS.UNSUPPORTED }
+
+    const existing = await registration.pushManager.getSubscription()
+    if (existing) {
+      try {
+        await messengerApi.removePushSubscription(existing.endpoint)
+      } catch (error) {
+        console.warn('Failed to remove push subscription from server:', error)
+      }
+      await existing.unsubscribe()
     }
+
+    return await subscribeAndUpsert(registration)
   } catch (error) {
-    console.error('Web push bootstrap failed:', error)
+    console.error('forceResubscribe failed:', error)
+    await reportSubscribeFailure(error)
+    return { status: PUSH_STATUS.SUBSCRIBE_FAILED, error }
   }
 }
 
+export async function bootstrapWebPush() {
+  if (!canUseWebPush()) {
+    return { status: PUSH_STATUS.UNSUPPORTED, isStandalone: false, requiresHomeScreen: false, isIphone: false }
+  }
+
+  try {
+    const registration = await ensureServiceWorkerRegistration()
+    if (registration?.waiting) {
+      registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+    }
+
+    const standalone = isStandaloneMode()
+    const iphone = isLikelyIphone()
+    const requiresHomeScreen = iphone && !standalone
+
+    if (Notification.permission === 'granted') {
+      const subscribed = await ensureWebPushSubscription()
+      return {
+        ...subscribed,
+        isStandalone: standalone,
+        requiresHomeScreen,
+        isIphone: iphone,
+      }
+    }
+
+    return {
+      status: Notification.permission === 'denied'
+        ? PUSH_STATUS.PERMISSION_DENIED
+        : PUSH_STATUS.SUBSCRIBE_FAILED,
+      isStandalone: standalone,
+      requiresHomeScreen,
+      isIphone: iphone,
+    }
+  } catch (error) {
+    console.error('Web push bootstrap failed:', error)
+    await reportSubscribeFailure(error)
+    return { status: PUSH_STATUS.SUBSCRIBE_FAILED, error, isStandalone: isStandaloneMode(), requiresHomeScreen: isLikelyIphone() && !isStandaloneMode(), isIphone: isLikelyIphone() }
+  }
+}

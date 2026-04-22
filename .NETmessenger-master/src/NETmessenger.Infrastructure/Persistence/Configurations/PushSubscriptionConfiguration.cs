@@ -37,6 +37,12 @@ public sealed class PushSubscriptionConfiguration : IEntityTypeConfiguration<Pus
         builder.Property(x => x.UpdatedAt)
             .IsRequired();
 
+        builder.Property(x => x.LastErrorCode)
+            .HasMaxLength(128);
+
+        builder.Property(x => x.LastErrorMessage)
+            .HasMaxLength(2000);
+
         builder.HasIndex(x => x.Endpoint)
             .IsUnique();
 
@@ -48,4 +54,3 @@ public sealed class PushSubscriptionConfiguration : IEntityTypeConfiguration<Pus
             .OnDelete(DeleteBehavior.Cascade);
     }
 }
-

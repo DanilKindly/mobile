@@ -2,8 +2,10 @@
 import { onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import messengerApi from '@/api/messenger'
+import { usePushStore } from '@/stores/push'
 
 const route = useRoute()
+const pushStore = usePushStore()
 
 let blurTimer = null
 let lastPresenceKey = null
@@ -52,6 +54,18 @@ async function syncGlobalPresence() {
   }
 }
 
+async function syncPushBootstrap() {
+  const currentUser = messengerApi.getCurrentUser()
+  if (!currentUser?.userId) return
+  if (!isMessengerRoute(route.path)) return
+
+  try {
+    await pushStore.bootstrapAfterLogin()
+  } catch (error) {
+    console.error('Failed to bootstrap push in App:', error)
+  }
+}
+
 function handleVisibilityChange() {
   clearBlurTimer()
   syncGlobalPresence()
@@ -79,6 +93,7 @@ watch(
   () => route.path,
   () => {
     syncGlobalPresence()
+    syncPushBootstrap()
   },
 )
 
@@ -88,6 +103,7 @@ onMounted(() => {
   window.addEventListener('blur', handleWindowBlur)
   window.addEventListener('pagehide', handlePageHide)
   syncGlobalPresence()
+  syncPushBootstrap()
 })
 
 onBeforeUnmount(() => {

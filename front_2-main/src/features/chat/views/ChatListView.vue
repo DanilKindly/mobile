@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import ChatList from '../components/ChatList.vue'
 import UserSearchDialog from '../components/UserSearchDialog.vue'
 import { useChatStore } from '@/stores/chat'
+import { usePushStore } from '@/stores/push'
 import { useThemeStore } from '@/stores/theme'
 import messengerApi from '@/api/messenger'
 import {
@@ -14,6 +15,7 @@ import {
 
 const router = useRouter()
 const chatStore = useChatStore()
+const pushStore = usePushStore()
 const themeStore = useThemeStore()
 
 const currentUser = computed(() => chatStore.currentUser)
@@ -117,6 +119,10 @@ async function selectLoginAndCreateChat(login) {
   }
 }
 
+async function handleReconnectPush() {
+  await pushStore.reconnectPush()
+}
+
 onMounted(async () => {
   const rememberedUser = messengerApi.getCurrentUser()
   if (!rememberedUser) {
@@ -162,9 +168,15 @@ onBeforeUnmount(() => {
       :selected-chat="null"
       :dark-theme="themeStore.darkTheme"
       :current-user="currentUser"
+      :push-status="pushStore.status"
+      :push-busy="pushStore.isBusy"
+      :push-requires-home-screen="pushStore.requiresHomeScreen"
+      :push-endpoint-masked="pushStore.endpointMasked"
+      :push-last-error-code="pushStore.lastErrorCode"
       @select-chat="handleSelectChat"
       @logout="handleLogout"
       @create-chat="handleCreateChat"
+      @reconnect-push="handleReconnectPush"
     />
 
     <UserSearchDialog

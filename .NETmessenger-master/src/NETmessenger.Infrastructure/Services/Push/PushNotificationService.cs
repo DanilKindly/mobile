@@ -86,6 +86,8 @@ public sealed class PushNotificationService : IPushNotificationService
         existing.FailureCount = 0;
         existing.UpdatedAt = now;
         existing.LastFailureAt = null;
+        existing.LastErrorCode = null;
+        existing.LastErrorMessage = null;
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
@@ -107,6 +109,51 @@ public sealed class PushNotificationService : IPushNotificationService
 
         _dbContext.PushSubscriptions.Remove(existing);
         await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<PushSubscriptionStatusDto> GetStatusAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        if (userId == Guid.Empty)
+        {
+            return new PushSubscriptionStatusDto(false, null, null, null, 0, null);
+        }
+
+        var subscription = await _dbContext.PushSubscriptions
+            .AsNoTracking()
+            .Where(x => x.UserId == userId)
+            .OrderByDescending(x => x.UpdatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (subscription is null)
+        {
+            return new PushSubscriptionStatusDto(false, null, null, null, 0, null);
+        }
+
+        return new PushSubscriptionStatusDto(
+            subscription.IsActive,
+            MaskEndpoint(subscription.Endpoint),
+            subscription.LastSuccessAt,
+            subscription.LastFailureAt,
+            subscription.FailureCount,
+            subscription.LastErrorCode);
+    }
+
+    public Task TrackClientSubscribeFailureAsync(Guid userId, PushSubscribeFailureDto dto, CancellationToken cancellationToken)
+    {
+        if (userId == Guid.Empty)
+        {
+            return Task.CompletedTask;
+        }
+
+        _logger.LogWarning(
+            "Push subscribe failed on client. userId={UserId} error={ErrorName} message={ErrorMessage} standalone={IsStandalone} userAgent={UserAgent}",
+            userId,
+            dto.ErrorName,
+            dto.ErrorMessage,
+            dto.IsStandalone,
+            dto.UserAgent ?? string.Empty);
+
+        return Task.CompletedTask;
     }
 
     public async Task NotifyIncomingMessageAsync(GetMessageDto message, CancellationToken cancellationToken)
@@ -203,7 +250,16 @@ public sealed class PushNotificationService : IPushNotificationService
                     subscription.LastFailureAt = null;
                     subscription.FailureCount = 0;
                     subscription.IsActive = true;
+                    subscription.LastErrorCode = null;
+                    subscription.LastErrorMessage = null;
                     changed = true;
+
+                    _logger.LogInformation(
+                        "Push delivered. messageId={MessageId} recipientUserId={RecipientUserId} subscriptionId={SubscriptionId} endpoint={Endpoint}",
+                        message.MessageId,
+                        subscription.UserId,
+                        subscription.Id,
+                        MaskEndpoint(subscription.Endpoint));
                 }
                 catch (WebPushException ex) when (ex.StatusCode is HttpStatusCode.Gone or HttpStatusCode.NotFound)
                 {
@@ -211,15 +267,31 @@ public sealed class PushNotificationService : IPushNotificationService
                     subscription.LastFailureAt = now;
                     subscription.UpdatedAt = now;
                     subscription.FailureCount += 1;
+                    subscription.LastErrorCode = $"webpush:{(int)ex.StatusCode}";
+                    subscription.LastErrorMessage = NormalizeOptional(ex.Message, 2000);
                     changed = true;
+
+                    _logger.LogWarning(
+                        "Push subscription invalidated. messageId={MessageId} recipientUserId={RecipientUserId} subscriptionId={SubscriptionId} status={StatusCode}",
+                        message.MessageId,
+                        subscription.UserId,
+                        subscription.Id,
+                        ex.StatusCode);
                 }
                 catch (Exception ex)
                 {
                     subscription.LastFailureAt = now;
                     subscription.UpdatedAt = now;
                     subscription.FailureCount += 1;
+                    subscription.LastErrorCode = "push_send_failed";
+                    subscription.LastErrorMessage = NormalizeOptional(ex.Message, 2000);
                     changed = true;
-                    _logger.LogWarning(ex, "Failed to deliver web push for subscription {SubscriptionId}", subscription.Id);
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to deliver push. messageId={MessageId} recipientUserId={RecipientUserId} subscriptionId={SubscriptionId}",
+                        message.MessageId,
+                        subscription.UserId,
+                        subscription.Id);
                 }
             }
 
@@ -269,5 +341,20 @@ public sealed class PushNotificationService : IPushNotificationService
         var trimmed = value.Trim();
         return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
     }
-}
 
+    private static string? MaskEndpoint(string? endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint))
+        {
+            return null;
+        }
+
+        var value = endpoint.Trim();
+        if (value.Length <= 24)
+        {
+            return value;
+        }
+
+        return $"{value[..14]}...{value[^8..]}";
+    }
+}

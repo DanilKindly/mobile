@@ -8,6 +8,7 @@ import ChatList from '../components/ChatList.vue'
 import UserSearchDialog from '../components/UserSearchDialog.vue'
 import { useChatStore } from '@/stores/chat'
 import { useMessageStore } from '@/stores/message'
+import { usePushStore } from '@/stores/push'
 import { useThemeStore } from '@/stores/theme'
 import messengerApi from '@/api/messenger'
 import {
@@ -20,6 +21,7 @@ const route = useRoute()
 const router = useRouter()
 const chatStore = useChatStore()
 const messageStore = useMessageStore()
+const pushStore = usePushStore()
 const themeStore = useThemeStore()
 
 const currentUser = ref(null)
@@ -63,6 +65,10 @@ function getMessagePreview(message) {
 
 function handleCreateChat() {
   showUserSearch.value = true
+}
+
+async function handleReconnectPush() {
+  await pushStore.reconnectPush()
 }
 
 async function selectLoginAndCreateChat(login) {
@@ -535,9 +541,15 @@ async function handleSendMedia(file) {
       :selected-chat="routeChatId"
       :dark-theme="themeStore.darkTheme"
       :current-user="currentUser"
+      :push-status="pushStore.status"
+      :push-busy="pushStore.isBusy"
+      :push-requires-home-screen="pushStore.requiresHomeScreen"
+      :push-endpoint-masked="pushStore.endpointMasked"
+      :push-last-error-code="pushStore.lastErrorCode"
       @select-chat="handleSelectChat"
       @logout="handleLogout"
       @create-chat="handleCreateChat"
+      @reconnect-push="handleReconnectPush"
     />
 
     <div
