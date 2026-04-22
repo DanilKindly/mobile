@@ -44,6 +44,12 @@ let realtimeUnsubscribers = []
 let olderLoadInFlight = false
 let userStartedOlderHistoryScroll = false
 let isProgrammaticScroll = false
+const hydratingRealtimeByChatId = ref({})
+
+function traceOpenFlow(stage, payload = {}) {
+  // Temporary debug trace for open-chat stabilization.
+  console.debug('[OpenFlow]', stage, payload)
+}
 
 function handleLogout() {
   const userId = getCurrentUserId()
@@ -140,6 +146,77 @@ function pinToLatestNow() {
 async function pinToLatest() {
   await nextTick()
   pinToLatestNow()
+}
+
+async function requestAutoPin(source) {
+  if (openingPhase.value !== 'anchored') {
+    traceOpenFlow('blocked pin', { source, reason: 'not_anchored', phase: openingPhase.value })
+    return
+  }
+
+  if (!stickToBottom.value) {
+    traceOpenFlow('blocked pin', { source, reason: 'not_near_bottom' })
+    return
+  }
+
+  traceOpenFlow('pin applied', { source })
+  await pinToLatest()
+}
+
+function queueHydratingRealtime(chatIdValue, event) {
+  const key = String(chatIdValue || '').toLowerCase()
+  if (!key) return
+  const current = hydratingRealtimeByChatId.value[key] || []
+  hydratingRealtimeByChatId.value = {
+    ...hydratingRealtimeByChatId.value,
+    [key]: [...current, event],
+  }
+}
+
+function drainHydratingRealtime(chatIdValue) {
+  const key = String(chatIdValue || '').toLowerCase()
+  if (!key) return []
+  const queue = hydratingRealtimeByChatId.value[key] || []
+  if (!queue.length) return []
+
+  const next = { ...hydratingRealtimeByChatId.value }
+  delete next[key]
+  hydratingRealtimeByChatId.value = next
+  return queue
+}
+
+function getSenderUserId(message) {
+  return String(message?.senderUserId ?? message?.SenderUserId ?? '')
+}
+
+function applyMessageCreatedState(event, currentUserId, options = {}) {
+  const message = event?.message || null
+  if (!message) return
+  const incomingChatId = message.chatId ?? message.ChatId
+  if (!incomingChatId) return
+
+  if (event?.chatPreview) {
+    chatStore.applyChatPreview(event.chatPreview, currentUserId)
+  }
+
+  chatStore.updatePreviewFromMessage(incomingChatId, message, currentUserId)
+  messageStore.addBackendMessageToState(message, currentUserId)
+
+  if (String(chatId.value).toLowerCase() === String(incomingChatId).toLowerCase()) {
+    const senderUserId = getSenderUserId(message)
+    const isMine = senderUserId === String(currentUserId)
+    if (!isMine && !options.skipReadAndUnreadOps) {
+      chatStore.resetUnreadCount(incomingChatId)
+    }
+    return
+  }
+
+  const senderUserId = getSenderUserId(message)
+  const isMine = senderUserId === String(currentUserId)
+  if (!isMine) {
+    const unreadKey = getUnreadMessageKey(message)
+    chatStore.incrementUnreadCount(incomingChatId, unreadKey)
+  }
 }
 
 function dismissKeyboardIfNeeded() {
@@ -273,34 +350,29 @@ const onMessageCreated = async (event) => {
   const currentUserId = getCurrentUserId()
   if (!currentUserId) return
 
-  if (event?.chatPreview) {
-    chatStore.applyChatPreview(event.chatPreview, currentUserId)
+  const isActiveChat = String(chatId.value).toLowerCase() === String(incomingChatId).toLowerCase()
+  if (isActiveChat && openingPhase.value === 'hydrating') {
+    queueHydratingRealtime(incomingChatId, event)
+    traceOpenFlow('blocked pin', { source: 'realtime', reason: 'hydrating_queue' })
+    return
   }
 
-  chatStore.updatePreviewFromMessage(incomingChatId, message, currentUserId)
-  messageStore.addBackendMessageToState(message, currentUserId)
+  applyMessageCreatedState(event, currentUserId)
 
-  if (String(chatId.value).toLowerCase() === String(incomingChatId).toLowerCase()) {
-    const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
+  if (isActiveChat) {
+    const senderUserId = getSenderUserId(message)
     const isMine = senderUserId === String(currentUserId)
     if (!isMine) {
-      chatStore.resetUnreadCount(incomingChatId)
       await messengerApi.markMessagesAsRead(incomingChatId, currentUserId)
     }
 
-    if (openingPhase.value === 'anchored' && stickToBottom.value) {
-      await pinToLatest()
-    }
+    await requestAutoPin('realtime')
 
     return
   }
 
-  const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
+  const senderUserId = getSenderUserId(message)
   const isMine = senderUserId === String(currentUserId)
-  if (!isMine) {
-    const unreadKey = getUnreadMessageKey(message)
-    chatStore.incrementUnreadCount(incomingChatId, unreadKey)
-  }
 
   if (!isMine && document.hidden) {
     const permission = await getNotificationPermissionState()
@@ -338,9 +410,7 @@ const onChatPreviewChanged = (event) => {
 }
 
 async function handleMessageMediaLoaded() {
-  if (openingPhase.value !== 'anchored') return
-  if (!stickToBottom.value) return
-  await pinToLatest()
+  await requestAutoPin('media')
 }
 
 const onPresenceChanged = (userId, isOnline, lastSeenAt) => {
@@ -375,6 +445,7 @@ async function openChat(targetChatId) {
   if (!currentUserId) return
 
   const requestId = ++openChatRequestId
+  traceOpenFlow('open start', { chatId: targetChatId, requestId })
   chatId.value = targetChatId
   chatStore.resetUnreadCount(targetChatId)
   messageStore.setActiveChat(targetChatId)
@@ -385,14 +456,32 @@ async function openChat(targetChatId) {
 
   try {
     await messageStore.loadLatestMessagesByChatId(targetChatId, currentUserId, 40)
+    traceOpenFlow('messages loaded', {
+      chatId: targetChatId,
+      requestId,
+      count: messageStore.getMessagesByChatId(targetChatId).length,
+    })
 
     if (requestId !== openChatRequestId) return
 
     chatName.value = resolveChatName(targetChatId)
     if (requestId !== openChatRequestId) return
 
+    const queued = drainHydratingRealtime(targetChatId)
+    if (queued.length > 0) {
+      for (const queuedEvent of queued) {
+        applyMessageCreatedState(queuedEvent, currentUserId, { skipReadAndUnreadOps: true })
+      }
+      traceOpenFlow('queued realtime applied', {
+        chatId: targetChatId,
+        requestId,
+        queuedCount: queued.length,
+      })
+    }
+
     await nextTick()
-    await pinToLatest()
+    pinToLatestNow()
+    traceOpenFlow('anchor applied', { chatId: targetChatId, requestId })
     if (requestId !== openChatRequestId) return
     openingPhase.value = 'anchored'
     stickToBottom.value = true
@@ -405,6 +494,7 @@ async function openChat(targetChatId) {
     if (requestId === openChatRequestId) {
       messageStore.clearMessages()
       openingPhase.value = 'idle'
+      traceOpenFlow('open failed', { chatId: targetChatId, requestId })
     }
   }
 }
@@ -434,6 +524,15 @@ const peerStatusText = computed(() => {
 
   return `был(а) в сети ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 })
+
+watch(
+  () => messageStore.messages.length,
+  () => {
+    if (openingPhase.value === 'hydrating') {
+      traceOpenFlow('blocked pin', { source: 'watcher', reason: 'hydrating' })
+    }
+  },
+)
 
 watch(
   () => chatStore.chats.map((c) => c.id).join(','),
@@ -479,6 +578,7 @@ onMounted(async () => {
   const shouldOpenFromRoute = routeChatId.value && isValidGuid(routeChatId.value)
 
   if (shouldOpenFromRoute) {
+    traceOpenFlow('direct route open', { chatId: routeChatId.value })
     await openChat(routeChatId.value)
   }
 
