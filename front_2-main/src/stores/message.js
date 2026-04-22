@@ -15,13 +15,14 @@ function mapBackendMessage(m, currentUserId) {
   const senderUserId = m.senderUserId ?? m.SenderUserId
   const sentAt = m.sentAt ?? m.SentAt
   const type = Number(m.type ?? m.Type ?? 0)
-  const isFromMe = senderUserId === currentUserId
+  const isFromMe = String(senderUserId) === String(currentUserId)
+  const isRead = Boolean(m.isRead ?? m.IsRead ?? false)
 
   return {
     id: messageId,
     senderUserId,
     sentAt,
-    type, // 0=text, 1=voice, 2=media
+    type,
     text: m.text ?? m.Text ?? '',
     audioUrl: messengerApi.resolveAssetUrl(m.audioUrl ?? m.AudioUrl),
     audioContentType: m.audioContentType ?? m.AudioContentType ?? null,
@@ -31,9 +32,10 @@ function mapBackendMessage(m, currentUserId) {
     mediaContentType: m.mediaContentType ?? m.MediaContentType ?? null,
     mediaFileName: m.mediaFileName ?? m.MediaFileName ?? null,
     mediaSizeBytes: m.mediaSizeBytes ?? m.MediaSizeBytes ?? null,
+    readAt: m.readAt ?? m.ReadAt ?? null,
     time: toTimeString(sentAt),
     isBot: !isFromMe,
-    isRead: !isFromMe,
+    isRead: isFromMe ? isRead : true,
   }
 }
 
@@ -41,12 +43,11 @@ export const useMessageStore = defineStore('message', () => {
   const messages = ref([])
 
   async function loadMessagesByChatId(chatId, currentUserId) {
-    messages.value = []
-
     try {
       const backendMessages = await messengerApi.getMessages(chatId)
       messages.value = backendMessages.map((m) => mapBackendMessage(m, currentUserId))
     } catch (e) {
+      messages.value = []
       console.error('Failed to load messages from backend:', e)
     }
   }
@@ -58,13 +59,33 @@ export const useMessageStore = defineStore('message', () => {
     messages.value.push(mapped)
   }
 
-  function markMessagesAsRead() {
-    messages.value.forEach((m) => {
-      if (!m.isBot) {
-        m.isRead = true
-      }
-    })
-    messages.value = [...messages.value]
+  function markMessagesAsReadByIds(messageIds, readerUserId, currentUserId) {
+    if (!Array.isArray(messageIds) || messageIds.length === 0) return
+
+    const idSet = new Set(messageIds.map((id) => String(id).toLowerCase()))
+    const readerNormalized = String(readerUserId || '').toLowerCase()
+    const currentNormalized = String(currentUserId || '').toLowerCase()
+
+    if (!readerNormalized || readerNormalized === currentNormalized) {
+      return
+    }
+
+    let changed = false
+    for (const message of messages.value) {
+      const messageId = String(message.id || '').toLowerCase()
+      const senderId = String(message.senderUserId || '').toLowerCase()
+
+      if (!idSet.has(messageId)) continue
+      if (senderId !== currentNormalized) continue
+      if (message.isRead) continue
+
+      message.isRead = true
+      changed = true
+    }
+
+    if (changed) {
+      messages.value = [...messages.value]
+    }
   }
 
   function clearMessages() {
@@ -75,7 +96,7 @@ export const useMessageStore = defineStore('message', () => {
     messages,
     loadMessagesByChatId,
     addBackendMessageToState,
-    markMessagesAsRead,
+    markMessagesAsReadByIds,
     clearMessages,
   }
 })

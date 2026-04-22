@@ -22,6 +22,18 @@ public class ChatHub(IMessageService messageService) : Hub
         await Clients.Group(GetChatGroup(chatId)).SendAsync("MessageReceived", message);
     }
 
+    public async Task MarkMessagesAsRead(Guid chatId, Guid readerUserId)
+    {
+        var readMessageIds = await messageService.MarkMessagesAsReadAsync(chatId, readerUserId, CancellationToken.None);
+        if (readMessageIds.Count == 0)
+        {
+            return;
+        }
+
+        await Clients.Group(GetChatGroup(chatId))
+            .SendAsync("MessagesRead", chatId, readMessageIds, readerUserId);
+    }
+
     public static string GetChatGroup(Guid chatId)
     {
         return $"chat:{chatId:D}";

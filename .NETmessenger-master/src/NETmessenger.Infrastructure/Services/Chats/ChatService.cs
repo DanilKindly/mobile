@@ -52,16 +52,16 @@ public sealed class ChatService(AppDbContext dbContext) : IChatService
 
             var existingDirectChat = await dbContext.Chats
                 .AsNoTracking()
-                .Include(c => c.Participants)
                 .Where(c => !c.IsGroup && c.Participants.Count == 2)
-                .FirstOrDefaultAsync(c =>
+                .Where(c =>
                     c.Participants.Any(p => p.Id == firstParticipantId) &&
-                    c.Participants.Any(p => p.Id == secondParticipantId),
-                    cancellationToken);
+                    c.Participants.Any(p => p.Id == secondParticipantId))
+                .FirstOrDefaultAsync(cancellationToken);
 
             if (existingDirectChat is not null)
             {
-                return MapToDto(existingDirectChat);
+                return await BuildChatDto(existingDirectChat.Id, cancellationToken)
+                    ?? throw new ResourceNotFoundException($"Chat '{existingDirectChat.Id}' was not found.");
             }
         }
 
@@ -77,17 +77,21 @@ public sealed class ChatService(AppDbContext dbContext) : IChatService
         dbContext.Chats.Add(chat);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return MapToDto(chat);
+        return new GetChatDto(
+            chat.Id,
+            chat.CreatedAt,
+            chat.IsGroup,
+            chat.Name,
+            chat.Participants.Select(p => p.Id).ToArray(),
+            null,
+            null,
+            null,
+            null);
     }
 
     public async Task<GetChatDto?> GetByIdAsync(Guid chatId, CancellationToken cancellationToken)
     {
-        var chat = await dbContext.Chats
-            .AsNoTracking()
-            .Include(c => c.Participants)
-            .FirstOrDefaultAsync(c => c.Id == chatId, cancellationToken);
-
-        return chat is null ? null : MapToDto(chat);
+        return await BuildChatDto(chatId, cancellationToken);
     }
 
     public async Task<IReadOnlyCollection<GetChatDto>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken)
@@ -100,12 +104,40 @@ public sealed class ChatService(AppDbContext dbContext) : IChatService
 
         var chats = await dbContext.Chats
             .AsNoTracking()
-            .Include(c => c.Participants)
             .Where(c => c.Participants.Any(p => p.Id == userId))
-            .OrderByDescending(c => c.CreatedAt)
+            .Select(c => new
+            {
+                c.Id,
+                c.CreatedAt,
+                c.IsGroup,
+                c.Name,
+                ParticipantUserIds = c.Participants.Select(p => p.Id).ToArray(),
+                LastMessage = c.Messages
+                    .OrderByDescending(m => m.SentAt)
+                    .Select(m => new
+                    {
+                        m.Text,
+                        m.Type,
+                        m.SenderId,
+                        m.SentAt
+                    })
+                    .FirstOrDefault()
+            })
+            .OrderByDescending(c => c.LastMessage != null ? c.LastMessage.SentAt : c.CreatedAt)
             .ToListAsync(cancellationToken);
 
-        return chats.Select(MapToDto).ToArray();
+        return chats
+            .Select(c => new GetChatDto(
+                c.Id,
+                c.CreatedAt,
+                c.IsGroup,
+                c.Name,
+                c.ParticipantUserIds,
+                c.LastMessage != null ? c.LastMessage.Text : null,
+                c.LastMessage != null ? (Contracts.Messages.MessageType?)c.LastMessage.Type : null,
+                c.LastMessage?.SenderId,
+                c.LastMessage?.SentAt))
+            .ToArray();
     }
 
     private static string? NormalizeName(string? name)
@@ -113,13 +145,33 @@ public sealed class ChatService(AppDbContext dbContext) : IChatService
         return string.IsNullOrWhiteSpace(name) ? null : name.Trim();
     }
 
-    private static GetChatDto MapToDto(Chat chat)
+    private Task<GetChatDto?> BuildChatDto(Guid chatId, CancellationToken cancellationToken)
     {
-        return new GetChatDto(
-            chat.Id,
-            chat.CreatedAt,
-            chat.IsGroup,
-            chat.Name,
-            chat.Participants.Select(p => p.Id).ToArray());
+        return dbContext.Chats
+            .AsNoTracking()
+            .Where(c => c.Id == chatId)
+            .Select(c => new GetChatDto(
+                c.Id,
+                c.CreatedAt,
+                c.IsGroup,
+                c.Name,
+                c.Participants.Select(p => p.Id).ToArray(),
+                c.Messages
+                    .OrderByDescending(m => m.SentAt)
+                    .Select(m => m.Text)
+                    .FirstOrDefault(),
+                c.Messages
+                    .OrderByDescending(m => m.SentAt)
+                    .Select(m => (Contracts.Messages.MessageType?)m.Type)
+                    .FirstOrDefault(),
+                c.Messages
+                    .OrderByDescending(m => m.SentAt)
+                    .Select(m => (Guid?)m.SenderId)
+                    .FirstOrDefault(),
+                c.Messages
+                    .OrderByDescending(m => m.SentAt)
+                    .Select(m => (DateTime?)m.SentAt)
+                    .FirstOrDefault()))
+            .FirstOrDefaultAsync(cancellationToken);
     }
 }

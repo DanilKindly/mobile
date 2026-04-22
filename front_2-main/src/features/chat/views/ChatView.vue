@@ -1,5 +1,5 @@
 <script setup>
-import { computed, watch, onMounted, ref, onBeforeUnmount } from 'vue'
+import { computed, watch, onMounted, ref, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ChatHeader from '../components/ChatHeader.vue'
 import ChatInput from '../components/ChatInput.vue'
@@ -10,18 +10,23 @@ import { useChatStore } from '@/stores/chat'
 import { useMessageStore } from '@/stores/message'
 import { useThemeStore } from '@/stores/theme'
 import messengerApi from '@/api/messenger'
+import { requestNotificationsPermissionOnce, showNewMessageNotification } from '@/shared/services/notificationService'
 
 const route = useRoute()
 const router = useRouter()
 const chatStore = useChatStore()
 const messageStore = useMessageStore()
 const themeStore = useThemeStore()
+
 const currentUser = ref(null)
 const chatId = ref(null)
-const chatName = ref(null)
+const chatName = ref('')
+const isChatLoading = ref(false)
 const showUserSearch = ref(false)
 const messagesContainer = ref(null)
-let signalRConnection = null
+let activeChatGroupId = null
+
+const connection = messengerApi.getConnection()
 
 function handleLogout() {
   messengerApi.logout()
@@ -34,9 +39,9 @@ function getCurrentUserId() {
 
 function getMessagePreview(message) {
   const type = Number(message.type ?? message.Type ?? 0)
-  if (type === 1) return 'Voice message'
-  if (type === 2) return 'Media message'
-  return message.text ?? message.Text ?? ''
+  if (type === 1) return 'Голосовое сообщение'
+  if (type === 2) return 'Медиафайл'
+  return (message.text ?? message.Text ?? '').trim()
 }
 
 function handleCreateChat() {
@@ -56,7 +61,8 @@ async function selectLoginAndCreateChat(login) {
 
 watch(
   () => messageStore.messages.length,
-  () => {
+  async () => {
+    await nextTick()
     if (messagesContainer.value) {
       messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
     }
@@ -66,32 +72,153 @@ watch(
 
 const routeChatId = computed(() => route.params.chatId)
 
+const onMessageReceived = async (message) => {
+  const incomingChatId = message.chatId ?? message.ChatId
+  if (!incomingChatId) return
+
+  const currentUserId = getCurrentUserId()
+  if (!currentUserId) return
+
+  chatStore.updatePreviewFromMessage(incomingChatId, message, currentUserId)
+
+  const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
+  const isMine = senderUserId === String(currentUserId)
+
+  if (String(chatId.value) === String(incomingChatId)) {
+    messageStore.addBackendMessageToState(message, currentUserId)
+
+    if (!isMine) {
+      await messengerApi.markMessagesAsRead(incomingChatId, currentUserId)
+    }
+
+    return
+  }
+
+  if (!isMine && document.hidden) {
+    const sourceChat = chatStore.getChatById(incomingChatId)
+    showNewMessageNotification({
+      title: sourceChat?.name || 'Новое сообщение',
+      body: getMessagePreview(message) || 'Новое сообщение в чате',
+      data: { chatId: incomingChatId },
+    })
+  }
+}
+
+const onMessagesRead = (incomingChatId, messageIds, readerUserId) => {
+  if (String(incomingChatId) !== String(chatId.value)) return
+  messageStore.markMessagesAsReadByIds(messageIds, readerUserId, getCurrentUserId())
+}
+
+async function ensureRealtime() {
+  if (connection.state !== 'Connected') {
+    await connection.start()
+  }
+
+  connection.off('MessageReceived', onMessageReceived)
+  connection.off('MessagesRead', onMessagesRead)
+
+  connection.on('MessageReceived', onMessageReceived)
+  connection.on('MessagesRead', onMessagesRead)
+}
+
+async function resolveChatName(targetChatId) {
+  const cached = chatStore.getChatById(targetChatId)
+  if (cached?.name) return cached.name
+
+  const chat = await messengerApi.getChatById(targetChatId)
+  const currentUserId = getCurrentUserId()
+
+  const participantIds = chat.participantUserIds ?? chat.ParticipantUserIds ?? []
+  const otherUserId = participantIds.find((id) => String(id) !== String(currentUserId))
+  if (otherUserId) {
+    const users = await messengerApi.getUsers()
+    const otherUser = users.find((u) => String(u.userId) === String(otherUserId))
+    return otherUser ? otherUser.username || otherUser.login : 'Собеседник'
+  }
+
+  return chat.name ?? chat.Name ?? 'Чат'
+}
+
+function isValidGuid(str) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
+}
+
+async function openChat(targetChatId) {
+  if (!targetChatId || !isValidGuid(targetChatId)) return
+
+  const currentUserId = getCurrentUserId()
+  if (!currentUserId) return
+
+  isChatLoading.value = true
+  chatId.value = targetChatId
+
+  const cachedChat = chatStore.getChatById(targetChatId)
+  chatName.value = cachedChat?.name || 'Чат'
+
+  try {
+    if (activeChatGroupId && String(activeChatGroupId) !== String(targetChatId)) {
+      await messengerApi.leaveChat(activeChatGroupId)
+    }
+
+    await Promise.all([
+      messengerApi.joinChat(targetChatId),
+      messageStore.loadMessagesByChatId(targetChatId, currentUserId),
+    ])
+
+    activeChatGroupId = targetChatId
+
+    if (!cachedChat?.name) {
+      chatName.value = await resolveChatName(targetChatId)
+    }
+
+    await messengerApi.markMessagesAsRead(targetChatId, currentUserId)
+  } catch (e) {
+    console.error('Failed to open chat:', e)
+    messageStore.clearMessages()
+  } finally {
+    isChatLoading.value = false
+  }
+}
+
 onMounted(async () => {
   currentUser.value = messengerApi.getCurrentUser()
   if (!currentUser.value) {
     router.push('/')
     return
   }
-  await chatStore.loadChats()
+
+  await Promise.all([
+    chatStore.loadChats(),
+    ensureRealtime(),
+    requestNotificationsPermissionOnce(),
+  ])
+
+  if (routeChatId.value && isValidGuid(routeChatId.value)) {
+    await openChat(routeChatId.value)
+  }
 })
 
 onBeforeUnmount(async () => {
-  if (chatId.value) {
+  if (activeChatGroupId) {
     try {
-      await messengerApi.leaveChat(chatId.value)
-    } catch (e) {
-      console.error('Failed to leave chat hub:', e)
-    }
-  }
-
-  if (signalRConnection) {
-    try {
-      await signalRConnection.stop()
+      await messengerApi.leaveChat(activeChatGroupId)
     } catch {
       // ignore
     }
   }
+
+  connection.off('MessageReceived', onMessageReceived)
+  connection.off('MessagesRead', onMessagesRead)
 })
+
+watch(
+  routeChatId,
+  (newChatId, oldChatId) => {
+    if (!newChatId || newChatId === oldChatId || !isValidGuid(newChatId)) return
+    openChat(newChatId)
+  },
+  { immediate: true },
+)
 
 async function handleSendText(text) {
   if (!chatId.value || !currentUser.value) return
@@ -99,9 +226,6 @@ async function handleSendText(text) {
   const senderUserId = getCurrentUserId()
   try {
     await messengerApi.sendMessageSignalR(chatId.value, text, senderUserId)
-    setTimeout(() => {
-      messengerApi.markMessagesAsRead(chatId.value)
-    }, 100)
   } catch (e) {
     console.error('Failed to send text message:', e)
     throw e
@@ -131,62 +255,6 @@ async function handleSendMedia(file) {
     throw e
   }
 }
-
-function isValidGuid(str) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
-}
-
-watch(
-  routeChatId,
-  (newChatId, oldChatId) => {
-    if (!newChatId || !isValidGuid(newChatId) || newChatId === oldChatId) return
-
-    ;(async () => {
-      try {
-        if (!currentUser.value) {
-          currentUser.value = messengerApi.getCurrentUser()
-        }
-        const currentUserId = getCurrentUserId()
-
-        const chat = await messengerApi.getChatById(newChatId)
-        chatId.value = chat.chatId ?? chat.ChatId
-
-        const participantIds = chat.participantUserIds ?? chat.ParticipantUserIds ?? []
-        const otherUserId = participantIds.find((id) => id !== currentUserId)
-        if (otherUserId) {
-          const users = await messengerApi.getUsers()
-          const otherUser = users.find((u) => u.userId === otherUserId)
-          chatName.value = otherUser ? otherUser.username || otherUser.login : 'Собеседник'
-        } else {
-          chatName.value = chat.name ?? chat.Name ?? 'Чат'
-        }
-
-        await chatStore.loadChats()
-        await messageStore.loadMessagesByChatId(chatId.value, currentUserId)
-
-        if (!signalRConnection) {
-          signalRConnection = messengerApi.getConnection()
-
-          signalRConnection.on('MessageReceived', (message) => {
-            const currentUserIdLocal = getCurrentUserId()
-            messageStore.addBackendMessageToState(message, currentUserIdLocal)
-            chatStore.updateLastMessage(chatId.value, getMessagePreview(message))
-          })
-
-          signalRConnection.on('MessagesRead', () => {
-            messageStore.markMessagesAsRead()
-          })
-        }
-
-        await messengerApi.joinChat(chatId.value)
-      } catch (e) {
-        console.error('Failed to switch chat or load data from backend:', e)
-        messageStore.clearMessages()
-      }
-    })()
-  },
-  { immediate: true },
-)
 </script>
 
 <template>
@@ -203,11 +271,11 @@ watch(
     />
 
     <div
-      v-if="routeChatId && chatName"
+      v-if="routeChatId"
       class="flex-1 h-screen flex flex-col overflow-hidden"
       :class="routeChatId ? 'flex' : 'hidden lg:flex'"
     >
-      <ChatHeader :user-name="chatName" user-state="чаты" :dark-theme="themeStore.darkTheme" :show-back="true" />
+      <ChatHeader :user-name="chatName || 'Чат'" user-state="в сети" :dark-theme="themeStore.darkTheme" :show-back="true" />
 
       <main
         ref="messagesContainer"
@@ -216,6 +284,10 @@ watch(
         style="z-index: 50;"
       >
         <div class="flex flex-col justify-end min-h-full">
+          <div v-if="isChatLoading && !messageStore.messages.length" class="mx-auto text-sm" :class="themeStore.darkTheme ? 'text-[#6D7F8F]' : 'text-[#868686]'">
+            Загружаем сообщения...
+          </div>
+
           <Message
             v-for="msg in messageStore.messages"
             :key="msg.id || `${msg.time}-${msg.text}`"

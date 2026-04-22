@@ -13,6 +13,8 @@ public class Message
     public string? MediaContentType { get; set; }
     public string? MediaFileName { get; set; }
     public long? MediaSizeBytes { get; set; }
+    public bool IsRead { get; set; }
+    public DateTime? ReadAt { get; set; }
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
     
     public Guid SenderId { get; set; }

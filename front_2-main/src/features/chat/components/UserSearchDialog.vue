@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import messengerApi from '@/api/messenger'
 
-const props = defineProps({
+defineProps({
   darkTheme: {
     type: Boolean,
     default: false,

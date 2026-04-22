@@ -14,4 +14,6 @@ public record GetMessageDto(
     string? MediaContentType,
     string? MediaFileName,
     long? MediaSizeBytes,
+    bool IsRead,
+    DateTime? ReadAt,
     DateTime SentAt);

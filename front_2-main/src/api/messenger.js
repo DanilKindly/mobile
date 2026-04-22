@@ -251,12 +251,16 @@ export const messengerApi = {
     }
   },
 
-  async markMessagesAsRead(chatId) {
+  async markMessagesAsRead(chatId, readerUserId = null) {
     const connection = getSignalRConnection()
     if (connection.state !== signalR.HubConnectionState.Connected) {
       await connection.start()
     }
-    await connection.invoke('MarkMessagesAsRead', chatId)
+
+    const resolvedReaderId = readerUserId || this.getCurrentUser()?.userId
+    if (!resolvedReaderId) return
+
+    await connection.invoke('MarkMessagesAsRead', chatId, resolvedReaderId)
   },
 
   getConnection() {

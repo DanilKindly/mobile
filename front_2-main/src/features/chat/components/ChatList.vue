@@ -1,5 +1,4 @@
 <script setup>
-import { useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 
 defineProps({
@@ -22,8 +21,6 @@ defineProps({
 })
 
 const emit = defineEmits(['select-chat', 'logout', 'create-chat'])
-
-const router = useRouter()
 const themeStore = useThemeStore()
 
 function selectChat(chat) {
@@ -32,12 +29,6 @@ function selectChat(chat) {
 
 function toggleTheme() {
   themeStore.toggleTheme()
-}
-
-function clearStorageAndReload() {
-  localStorage.clear()
-  sessionStorage.clear()
-  window.location.reload()
 }
 
 function logout() {
@@ -50,17 +41,21 @@ function createChat() {
 </script>
 
 <template>
-  <aside :class="[
-    'h-screen flex flex-col',
-    'w-[280px] lg:w-[320px]',
-    darkTheme ? 'bg-[#17212B]' : 'bg-white',
-    'fixed lg:relative z-20 transition-transform duration-300',
-    selectedChat ? '-translate-x-full lg:translate-x-0' : 'translate-x-0',
-  ]">
-    <div :class="[
-      'p-[15px] border-b flex-shrink-0',
-      darkTheme ? 'bg-[#17212B] border-[#182533]' : 'bg-white border-gray-200',
-    ]">
+  <aside
+    :class="[
+      'h-screen flex flex-col',
+      'w-full max-w-full lg:w-[320px]',
+      darkTheme ? 'bg-[#17212B]' : 'bg-white',
+      'fixed inset-y-0 left-0 lg:relative z-20 transition-transform duration-300',
+      selectedChat ? '-translate-x-full lg:translate-x-0' : 'translate-x-0',
+    ]"
+  >
+    <div
+      :class="[
+        'p-[15px] border-b flex-shrink-0',
+        darkTheme ? 'bg-[#17212B] border-[#182533]' : 'bg-white border-gray-200',
+      ]"
+    >
       <div class="flex items-center justify-between mb-2">
         <h2 :class="['text-[18px] font-medium', darkTheme ? 'text-white' : 'text-black']">Чаты</h2>
         <button
@@ -71,7 +66,9 @@ function createChat() {
         </button>
       </div>
       <div v-if="currentUser" class="flex items-center gap-2">
-        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">
+        <div
+          class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold"
+        >
           {{ (currentUser.username || currentUser.login || '?')[0].toUpperCase() }}
         </div>
         <div class="flex-1 min-w-0">
@@ -88,7 +85,7 @@ function createChat() {
           title="Выйти"
           @click="logout"
         >
-          x
+          ×
         </button>
       </div>
     </div>
@@ -108,38 +105,37 @@ function createChat() {
           <div class="w-[40px] h-[40px] rounded-full bg-[#e3f2fd] flex items-center justify-center text-[18px] font-medium">
             {{ chat.name[0].toUpperCase() }}
           </div>
-          <div>
-            <div :class="['text-[16px] font-medium', darkTheme ? 'text-white' : 'text-black']">{{ chat.name }}</div>
-            <div :class="['text-[13px]', darkTheme ? 'text-[#6D7F8F]' : 'text-[#868686]']">{{ chat.lastMessage || 'Нет сообщений' }}</div>
+          <div class="min-w-0">
+            <div :class="['text-[16px] font-medium truncate', darkTheme ? 'text-white' : 'text-black']">{{ chat.name }}</div>
+            <div :class="['text-[13px] truncate', darkTheme ? 'text-[#6D7F8F]' : 'text-[#868686]']">
+              {{ chat.lastMessage || 'Нет сообщений' }}
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <div :class="[
-      'p-[15px] border-t flex-shrink-0',
-      darkTheme ? 'bg-[#17212B] border-[#182533]' : 'bg-[#f5f5f5] border-[#d0d0d0]',
-    ]">
-      <div class="flex items-center justify-between gap-[10px] mb-[10px]">
+    <div
+      :class="[
+        'p-[15px] border-t flex-shrink-0',
+        darkTheme ? 'bg-[#17212B] border-[#182533]' : 'bg-[#f5f5f5] border-[#d0d0d0]',
+      ]"
+    >
+      <div class="flex items-center justify-between gap-[10px]">
         <span :class="['text-[14px]', darkTheme ? 'text-[#6D7F8F]' : 'text-[#666]']">Темная тема</span>
         <button
           class="relative w-[50px] h-[26px] rounded-[13px] transition-colors"
           :class="darkTheme ? 'bg-[#4CAF50]' : 'bg-[#ccc]'"
           @click="toggleTheme"
         >
-          <div :class="[
-            'absolute top-[3px] w-[20px] h-[20px] rounded-full bg-white transition-transform',
-            darkTheme ? 'left-[27px]' : 'left-[3px]',
-          ]" />
+          <div
+            :class="[
+              'absolute top-[3px] w-[20px] h-[20px] rounded-full bg-white transition-transform',
+              darkTheme ? 'left-[27px]' : 'left-[3px]',
+            ]"
+          />
         </button>
       </div>
-      <button
-        class="w-full text-[13px] py-[8px] rounded-[8px] transition-colors border"
-        :class="darkTheme ? 'bg-[#182533] text-[#6D7F8F] hover:bg-[#1a3a5c] border-[#182533]' : 'bg-[#fff] text-[#666] hover:bg-[#e0e0e0] border-[#ccc]'"
-        @click="clearStorageAndReload"
-      >
-        Сбросить данные
-      </button>
     </div>
   </aside>
 </template>

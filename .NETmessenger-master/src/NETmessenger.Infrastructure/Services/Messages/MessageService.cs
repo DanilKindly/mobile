@@ -37,6 +37,8 @@ public sealed class MessageService(AppDbContext dbContext, IVoiceStorage voiceSt
                 m.MediaContentType,
                 m.MediaFileName,
                 m.MediaSizeBytes,
+                m.IsRead,
+                m.ReadAt,
                 m.SentAt))
             .ToArrayAsync(cancellationToken);
     }
@@ -88,6 +90,51 @@ public sealed class MessageService(AppDbContext dbContext, IVoiceStorage voiceSt
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return MapToDto(message);
+    }
+
+    public async Task<IReadOnlyCollection<Guid>> MarkMessagesAsReadAsync(
+        Guid chatId,
+        Guid readerUserId,
+        CancellationToken cancellationToken)
+    {
+        var chatExists = await dbContext.Chats
+            .AsNoTracking()
+            .AnyAsync(c => c.Id == chatId, cancellationToken);
+
+        if (!chatExists)
+        {
+            throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+        }
+
+        var readerInChat = await dbContext.Chats
+            .AsNoTracking()
+            .Where(c => c.Id == chatId)
+            .SelectMany(c => c.Participants)
+            .AnyAsync(p => p.Id == readerUserId, cancellationToken);
+
+        if (!readerInChat)
+        {
+            throw new DomainValidationException("Reader is not a participant of this chat.");
+        }
+
+        var unreadMessages = await dbContext.Messages
+            .Where(m => m.ChatId == chatId && m.SenderId != readerUserId && !m.IsRead)
+            .ToListAsync(cancellationToken);
+
+        if (unreadMessages.Count == 0)
+        {
+            return Array.Empty<Guid>();
+        }
+
+        var readAt = DateTime.UtcNow;
+        foreach (var message in unreadMessages)
+        {
+            message.IsRead = true;
+            message.ReadAt = readAt;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return unreadMessages.Select(m => m.Id).ToArray();
     }
 
     public async Task<GetMessageDto> SendVoiceAsync(
@@ -231,6 +278,8 @@ public sealed class MessageService(AppDbContext dbContext, IVoiceStorage voiceSt
             message.MediaContentType,
             message.MediaFileName,
             message.MediaSizeBytes,
+            message.IsRead,
+            message.ReadAt,
             message.SentAt);
     }
 }

@@ -10,6 +10,7 @@ const themeStore = useThemeStore()
 const activeMode = ref('login')
 const isLoading = ref(false)
 const errorText = ref('')
+const showRegisterSuccess = ref(false)
 
 const loginForm = ref({
   login: '',
@@ -100,12 +101,22 @@ async function submitRegister() {
       password: registerForm.value.password,
       username: registerForm.value.username.trim(),
     })
-    router.push('/chats')
+
+    messengerApi.logout()
+    showRegisterSuccess.value = true
   } catch (error) {
     errorText.value = error?.response?.data?.error || 'Не удалось зарегистрироваться.'
   } finally {
     isLoading.value = false
   }
+}
+
+function goToLoginAfterRegister() {
+  showRegisterSuccess.value = false
+  activeMode.value = 'login'
+  errorText.value = ''
+  loginForm.value.login = registerForm.value.login
+  loginForm.value.password = ''
 }
 </script>
 
@@ -113,7 +124,7 @@ async function submitRegister() {
   <div class="h-screen flex items-center justify-center" :class="themeStore.darkTheme ? 'bg-[#0a0a0a]' : 'bg-gray-100'">
     <div class="w-full max-w-md p-8 rounded-2xl shadow-2xl" :class="themeStore.darkTheme ? 'bg-[#1a1a1a]' : 'bg-white'">
       <div class="flex justify-center mb-4">
-        <div class="km-logo" role="img" aria-label="Kindly messenger logo">
+        <div class="km-logo" role="img" aria-label="Kindly Messenger logo">
           <img src="/logo-mark.png" alt="" class="km-logo__layer km-logo__outer">
           <img src="/logo-mark.png" alt="" class="km-logo__layer km-logo__k">
           <img src="/logo-mark.png" alt="" class="km-logo__layer km-logo__m">
@@ -121,7 +132,7 @@ async function submitRegister() {
         </div>
       </div>
       <h1 class="text-3xl font-bold text-center mb-2" :class="themeStore.darkTheme ? 'text-white' : 'text-gray-800'">
-        Kindly messenger
+        Kindly Messenger
       </h1>
       <p class="text-center mb-6" :class="themeStore.darkTheme ? 'text-gray-400' : 'text-gray-500'">
         {{ title }}
@@ -206,6 +217,28 @@ async function submitRegister() {
       <p v-if="errorText" class="mt-4 text-sm text-red-400">
         {{ errorText }}
       </p>
+    </div>
+
+    <div
+      v-if="showRegisterSuccess"
+      class="fixed inset-0 bg-black/40 flex items-center justify-center px-4"
+      style="z-index: 200"
+    >
+      <div
+        class="w-full max-w-sm rounded-2xl p-6 shadow-2xl"
+        :class="themeStore.darkTheme ? 'bg-[#1a1a1a] text-white' : 'bg-white text-gray-900'"
+      >
+        <h2 class="text-xl font-semibold mb-2">Регистрация прошла успешно</h2>
+        <p :class="themeStore.darkTheme ? 'text-gray-400 mb-5' : 'text-gray-600 mb-5'">
+          Аккаунт создан. Теперь выполните вход в мессенджер.
+        </p>
+        <button
+          class="w-full py-3 rounded-xl bg-blue-500 text-white font-medium hover:bg-blue-600"
+          @click="goToLoginAfterRegister"
+        >
+          Войти в мессенджер
+        </button>
+      </div>
     </div>
   </div>
 </template>

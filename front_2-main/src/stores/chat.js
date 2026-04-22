@@ -6,6 +6,19 @@ export const useChatStore = defineStore('chat', () => {
   const chats = ref([])
   const currentUser = ref(null)
 
+  function messagePreviewByType(type, text) {
+    const normalizedType = Number(type ?? 0)
+    if (normalizedType === 1) return 'Голосовое сообщение'
+    if (normalizedType === 2) return 'Медиафайл'
+    return (text || '').trim()
+  }
+
+  function buildPreview({ text, type, senderUserId, currentUserId }) {
+    const base = messagePreviewByType(type, text)
+    if (!base) return ''
+    return senderUserId === currentUserId ? `Вы: ${base}` : base
+  }
+
   function mapChats(backendChats, allUsers, currentUserId) {
     const normalizeId = (id) => String(id || '').toLowerCase()
     const normalizedCurrentId = normalizeId(currentUserId)
@@ -29,10 +42,20 @@ export const useChatStore = defineStore('chat', () => {
         }
       }
 
+      const preview = buildPreview({
+        text: c.lastMessageText ?? c.LastMessageText ?? '',
+        type: c.lastMessageType ?? c.LastMessageType ?? 0,
+        senderUserId: c.lastMessageSenderUserId ?? c.LastMessageSenderUserId ?? null,
+        currentUserId,
+      })
+
       return {
         id: chatId,
         name: displayName,
-        lastMessage: '',
+        lastMessage: preview,
+        lastMessageSentAt: c.lastMessageSentAt ?? c.LastMessageSentAt ?? null,
+        lastMessageSenderUserId: c.lastMessageSenderUserId ?? c.LastMessageSenderUserId ?? null,
+        lastMessageType: c.lastMessageType ?? c.LastMessageType ?? null,
         isGroup,
       }
     })
@@ -58,11 +81,34 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function updateLastMessage(chatId, message) {
-    const chat = chats.value.find((c) => c.id === chatId)
-    if (chat) {
-      chat.lastMessage = message
-    }
+  function updateLastMessage(chatId, message, sentAt = null, senderUserId = null, type = null) {
+    const chat = chats.value.find((c) => String(c.id) === String(chatId))
+    if (!chat) return
+
+    chat.lastMessage = message
+    chat.lastMessageSentAt = sentAt || new Date().toISOString()
+    chat.lastMessageSenderUserId = senderUserId
+    chat.lastMessageType = type
+
+    chats.value = [...chats.value].sort((a, b) => {
+      const aTs = a.lastMessageSentAt ? new Date(a.lastMessageSentAt).getTime() : 0
+      const bTs = b.lastMessageSentAt ? new Date(b.lastMessageSentAt).getTime() : 0
+      return bTs - aTs
+    })
+  }
+
+  function updatePreviewFromMessage(chatId, messageDto, currentUserId) {
+    const senderUserId = messageDto.senderUserId ?? messageDto.SenderUserId ?? null
+    const text = messageDto.text ?? messageDto.Text ?? ''
+    const type = messageDto.type ?? messageDto.Type ?? 0
+    const sentAt = messageDto.sentAt ?? messageDto.SentAt ?? new Date().toISOString()
+    const preview = buildPreview({ text, type, senderUserId, currentUserId })
+
+    updateLastMessage(chatId, preview, sentAt, senderUserId, Number(type))
+  }
+
+  function getChatById(chatId) {
+    return chats.value.find((c) => String(c.id) === String(chatId)) || null
   }
 
   return {
@@ -70,5 +116,7 @@ export const useChatStore = defineStore('chat', () => {
     currentUser,
     loadChats,
     updateLastMessage,
+    updatePreviewFromMessage,
+    getChatById,
   }
 })

@@ -41,6 +41,13 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Property(m => m.MediaSizeBytes)
             .IsRequired(false);
 
+        builder.Property(m => m.IsRead)
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        builder.Property(m => m.ReadAt)
+            .IsRequired(false);
+
         builder.HasOne(m => m.Sender)
             .WithMany(u => u.Messages)
             .HasForeignKey(m => m.SenderId)

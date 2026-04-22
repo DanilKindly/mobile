@@ -1,7 +1,7 @@
 {
-  "name": "Kindly messenger",
-  "short_name": "Kindly",
-  "description": "Kindly messenger web app",
+  "name": "Kindly Messenger",
+  "short_name": "Kindly Messenger",
+  "description": "Kindly Messenger web app",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -1,9 +1,10 @@
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 
 const emit = defineEmits(['send-text', 'send-voice', 'send-media'])
 
 const messageInput = ref('')
+const messageInputRef = ref(null)
 const mediaInput = ref(null)
 
 const isRecording = ref(false)
@@ -140,7 +141,7 @@ async function startRecording(pointerX) {
           durationSeconds: duration,
           fileName: `voice-${Date.now()}.${extension}`,
         })
-      } catch (error) {
+      } catch {
         sendingError.value = 'Не удалось отправить голосовое сообщение.'
       } finally {
         isSendingVoice.value = false
@@ -153,7 +154,7 @@ async function startRecording(pointerX) {
     timerHandle = setInterval(() => {
       recordingDurationSeconds.value += 1
     }, 1000)
-  } catch (error) {
+  } catch {
     recordError.value = 'Не удалось получить доступ к микрофону.'
     hardResetRecordingState()
   }
@@ -210,7 +211,7 @@ async function onMediaPicked(event) {
 
   try {
     await emit('send-media', file)
-  } catch (error) {
+  } catch {
     sendingError.value = 'Не удалось отправить файл.'
   } finally {
     event.target.value = ''
@@ -229,7 +230,9 @@ async function sendTextMessage() {
     await emit('send-text', text)
     messageInput.value = ''
     sendingError.value = ''
-  } catch (error) {
+    await nextTick()
+    messageInputRef.value?.focus()
+  } catch {
     sendingError.value = 'Не удалось отправить сообщение.'
   }
 }
@@ -296,6 +299,7 @@ onBeforeUnmount(() => {
       </button>
 
       <input
+        ref="messageInputRef"
         v-model="messageInput"
         @keydown="handleKeydown"
         class="flex-1 min-w-0 px-[15px] py-[8px] rounded-[20px]"
@@ -314,7 +318,13 @@ onBeforeUnmount(() => {
         🎤
       </button>
 
-      <button @click="sendTextMessage" class="flex-shrink-0" title="Отправить текст">
+      <button
+        class="flex-shrink-0"
+        title="Отправить текст"
+        @mousedown.prevent
+        @touchstart.prevent
+        @click="sendTextMessage"
+      >
         <img src="/src/assets/icons/send-message.svg" class="w-[30px]" alt="Отправить">
       </button>
     </div>

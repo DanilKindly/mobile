@@ -1,11 +1,12 @@
 <script setup>
-import { onMounted, computed, ref } from 'vue'
+import { onBeforeUnmount, onMounted, computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import ChatList from '../components/ChatList.vue'
 import UserSearchDialog from '../components/UserSearchDialog.vue'
 import { useChatStore } from '@/stores/chat'
 import { useThemeStore } from '@/stores/theme'
 import messengerApi from '@/api/messenger'
+import { requestNotificationsPermissionOnce, showNewMessageNotification } from '@/shared/services/notificationService'
 
 const router = useRouter()
 const chatStore = useChatStore()
@@ -13,6 +14,42 @@ const themeStore = useThemeStore()
 
 const currentUser = computed(() => chatStore.currentUser)
 const showUserSearch = ref(false)
+const connection = messengerApi.getConnection()
+
+function getMessagePreview(message) {
+  const type = Number(message.type ?? message.Type ?? 0)
+  if (type === 1) return 'Голосовое сообщение'
+  if (type === 2) return 'Медиафайл'
+  return (message.text ?? message.Text ?? '').trim()
+}
+
+const onMessageReceived = (message) => {
+  const chatId = message.chatId ?? message.ChatId
+  const currentUserId = currentUser.value?.userId
+  if (!chatId || !currentUserId) return
+
+  chatStore.updatePreviewFromMessage(chatId, message, currentUserId)
+
+  const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
+  if (senderUserId === String(currentUserId)) return
+
+  const senderChat = chatStore.getChatById(chatId)
+  const title = senderChat?.name || 'Новое сообщение'
+  const body = getMessagePreview(message) || 'Новое сообщение в чате'
+
+  if (document.hidden) {
+    showNewMessageNotification({ title, body, data: { chatId } })
+  }
+}
+
+async function ensureRealtime() {
+  if (connection.state !== 'Connected') {
+    await connection.start()
+  }
+
+  connection.off('MessageReceived', onMessageReceived)
+  connection.on('MessageReceived', onMessageReceived)
+}
 
 async function handleSelectChat(chat) {
   router.push(`/chat/${chat.id}`)
@@ -39,8 +76,14 @@ async function selectLoginAndCreateChat(login) {
   }
 }
 
-onMounted(() => {
-  chatStore.loadChats()
+onMounted(async () => {
+  await chatStore.loadChats()
+  await ensureRealtime()
+  await requestNotificationsPermissionOnce()
+})
+
+onBeforeUnmount(() => {
+  connection.off('MessageReceived', onMessageReceived)
 })
 </script>
 
