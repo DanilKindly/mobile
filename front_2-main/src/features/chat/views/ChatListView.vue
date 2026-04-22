@@ -17,7 +17,7 @@ const router = useRouter()
 const chatStore = useChatStore()
 const pushStore = usePushStore()
 const themeStore = useThemeStore()
-const pushDebugEnabled = import.meta.env.VITE_PUSH_DEBUG_UI === '1'
+const pushDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_PUSH_DEBUG_UI === '1'
 
 const currentUser = computed(() => chatStore.currentUser)
 const showUserSearch = ref(false)

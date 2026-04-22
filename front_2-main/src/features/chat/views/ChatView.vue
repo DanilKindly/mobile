@@ -23,7 +23,7 @@ const chatStore = useChatStore()
 const messageStore = useMessageStore()
 const pushStore = usePushStore()
 const themeStore = useThemeStore()
-const pushDebugEnabled = import.meta.env.VITE_PUSH_DEBUG_UI === '1'
+const pushDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_PUSH_DEBUG_UI === '1'
 
 const currentUser = ref(null)
 const chatId = ref(null)
