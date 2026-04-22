@@ -227,18 +227,10 @@ function ensureRawHandlersAttached(connection) {
     }
   })
 
-  // Backward compatibility with old hub payloads.
+  // Legacy payload is intentionally ignored in current client, because backend
+  // already sends canonical RealtimeEvent and handling both produces duplicates.
   connection.on('MessageReceived', (message) => {
-    const normalizedMessage = normalizeMessage(message)
-    const fallbackEvent = {
-      eventType: 'MessageCreated',
-      cursor: normalizedMessage.version || Date.now(),
-      version: normalizedMessage.version || Date.now(),
-      chatId: normalizedMessage.chatId,
-      message: normalizedMessage,
-    }
-    setRealtimeCursor(fallbackEvent.cursor)
-    emitRealtime('MessageCreated', fallbackEvent)
+    void message
   })
 
   connection.on('MessagesRead', (chatId, messageIds, readerUserId) => {

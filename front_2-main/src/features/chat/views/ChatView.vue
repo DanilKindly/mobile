@@ -32,6 +32,7 @@ const activePeerId = ref(null)
 const showUserSearch = ref(false)
 const messagesContainer = ref(null)
 const stickToBottom = ref(true)
+const openingPhase = ref('idle')
 
 const onlineUsers = ref({})
 const lastSeenByUser = ref({})
@@ -41,8 +42,8 @@ let openChatRequestId = 0
 let lastScrollTop = 0
 let realtimeUnsubscribers = []
 let olderLoadInFlight = false
-let isOpeningChat = false
 let userStartedOlderHistoryScroll = false
+let isProgrammaticScroll = false
 
 function handleLogout() {
   const userId = getCurrentUserId()
@@ -128,7 +129,12 @@ function isNearOlderEdge() {
 function pinToLatestNow() {
   const el = messagesContainer.value
   if (!el) return
+  isProgrammaticScroll = true
   el.scrollTop = el.scrollHeight
+  lastScrollTop = el.scrollTop
+  requestAnimationFrame(() => {
+    isProgrammaticScroll = false
+  })
 }
 
 async function pinToLatest() {
@@ -152,6 +158,12 @@ function dismissKeyboardIfNeeded() {
 function handleMessagesScroll() {
   const el = messagesContainer.value
   if (!el) return
+
+  if (isProgrammaticScroll) {
+    stickToBottom.value = isNearBottom()
+    lastScrollTop = el.scrollTop
+    return
+  }
 
   const delta = Math.abs(el.scrollTop - lastScrollTop)
   lastScrollTop = el.scrollTop
@@ -276,7 +288,7 @@ const onMessageCreated = async (event) => {
       await messengerApi.markMessagesAsRead(incomingChatId, currentUserId)
     }
 
-    if (stickToBottom.value) {
+    if (openingPhase.value === 'anchored' && stickToBottom.value) {
       await pinToLatest()
     }
 
@@ -326,6 +338,7 @@ const onChatPreviewChanged = (event) => {
 }
 
 async function handleMessageMediaLoaded() {
+  if (openingPhase.value !== 'anchored') return
   if (!stickToBottom.value) return
   await pinToLatest()
 }
@@ -367,19 +380,22 @@ async function openChat(targetChatId) {
   messageStore.setActiveChat(targetChatId)
   setImmediateChatName(targetChatId)
   stickToBottom.value = true
-  isOpeningChat = true
+  openingPhase.value = 'hydrating'
   userStartedOlderHistoryScroll = false
 
   try {
-    const loadPromise = messageStore.loadLatestMessagesByChatId(targetChatId, currentUserId, 40)
+    await messageStore.loadLatestMessagesByChatId(targetChatId, currentUserId, 40)
 
     if (requestId !== openChatRequestId) return
 
     chatName.value = resolveChatName(targetChatId)
     if (requestId !== openChatRequestId) return
 
-    await loadPromise
+    await nextTick()
     await pinToLatest()
+    if (requestId !== openChatRequestId) return
+    openingPhase.value = 'anchored'
+    stickToBottom.value = true
 
     // Do not block initial open on read receipt call.
     messengerApi.markMessagesAsRead(targetChatId, currentUserId)
@@ -388,9 +404,8 @@ async function openChat(targetChatId) {
     console.error('Failed to open chat:', e)
     if (requestId === openChatRequestId) {
       messageStore.clearMessages()
+      openingPhase.value = 'idle'
     }
-  } finally {
-    isOpeningChat = false
   }
 }
 
@@ -419,17 +434,6 @@ const peerStatusText = computed(() => {
 
   return `был(а) в сети ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 })
-
-watch(
-  () => messageStore.messages.length,
-  async () => {
-    if (isOpeningChat) return
-    if (stickToBottom.value && !olderLoadInFlight) {
-      await pinToLatest()
-    }
-  },
-  { flush: 'post' },
-)
 
 watch(
   () => chatStore.chats.map((c) => c.id).join(','),
@@ -473,7 +477,10 @@ onMounted(async () => {
   }
 
   const shouldOpenFromRoute = routeChatId.value && isValidGuid(routeChatId.value)
-  const openingChatPromise = shouldOpenFromRoute ? openChat(routeChatId.value) : Promise.resolve()
+
+  if (shouldOpenFromRoute) {
+    await openChat(routeChatId.value)
+  }
 
   if (chatStore.chats.length === 0) {
     chatStore.loadChats().catch((e) => console.error('Failed to load chats:', e))
@@ -490,8 +497,6 @@ onMounted(async () => {
     syncPresenceSnapshot(),
     setupNotificationPermissionBootstrap(),
   ])
-
-  await openingChatPromise
 })
 
 onBeforeUnmount(() => {
@@ -511,6 +516,9 @@ async function handleSendText(text) {
     { clientMessageId, senderUserId, text, sentAtClient },
     senderUserId,
   )
+  if (openingPhase.value === 'anchored' && stickToBottom.value) {
+    await pinToLatest()
+  }
   chatStore.updatePreviewFromMessage(
     chatId.value,
     { senderUserId, text, type: 0, sentAt: sentAtClient },
@@ -526,6 +534,9 @@ async function handleSendText(text) {
     })
 
     messageStore.markPendingMessageAsSent(chatId.value, clientMessageId, result.message, senderUserId)
+    if (openingPhase.value === 'anchored' && stickToBottom.value) {
+      await pinToLatest()
+    }
     chatStore.updatePreviewFromMessage(chatId.value, result.message, senderUserId)
   } catch (e) {
     messageStore.markPendingMessageAsFailed(chatId.value, clientMessageId)
