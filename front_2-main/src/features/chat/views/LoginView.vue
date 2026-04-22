@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
@@ -22,24 +22,24 @@ const registerForm = ref({
   username: '',
 })
 
-const title = computed(() => (activeMode.value === 'login' ? 'Вход' : 'Регистрация'))
+const title = computed(() => (activeMode.value === 'login' ? 'Р’С…РѕРґ' : 'Р РµРіРёСЃС‚СЂР°С†РёСЏ'))
 
 function validateLoginInput(login) {
-  if (!login?.trim()) return 'Введите login.'
-  if (login.trim().length < 3) return 'Login должен быть минимум 3 символа.'
-  if (!/^[a-zA-Z0-9_-]+$/.test(login.trim())) return 'Login: только буквы, цифры, "_" и "-".'
+  if (!login?.trim()) return 'Р’РІРµРґРёС‚Рµ login.'
+  if (login.trim().length < 3) return 'Login РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РјРёРЅРёРјСѓРј 3 СЃРёРјРІРѕР»Р°.'
+  if (!/^[a-zA-Z0-9_-]+$/.test(login.trim())) return 'Login: С‚РѕР»СЊРєРѕ Р±СѓРєРІС‹, С†РёС„СЂС‹, "_" Рё "-".'
   return ''
 }
 
 function validatePasswordInput(password) {
-  if (!password?.trim()) return 'Введите password.'
-  if (password.trim().length < 6) return 'Password должен быть минимум 6 символов.'
+  if (!password?.trim()) return 'Р’РІРµРґРёС‚Рµ password.'
+  if (password.trim().length < 6) return 'Password РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РјРёРЅРёРјСѓРј 6 СЃРёРјРІРѕР»РѕРІ.'
   return ''
 }
 
 function validateUsernameInput(username) {
-  if (!username?.trim()) return 'Введите username.'
-  if (username.trim().length < 2) return 'Username должен быть минимум 2 символа.'
+  if (!username?.trim()) return 'Р’РІРµРґРёС‚Рµ username.'
+  if (username.trim().length < 2) return 'Username РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РјРёРЅРёРјСѓРј 2 СЃРёРјРІРѕР»Р°.'
   return ''
 }
 
@@ -66,7 +66,7 @@ async function submitLogin() {
     })
     router.push('/chats')
   } catch (error) {
-    errorText.value = error?.response?.data?.error || 'Не удалось войти. Проверьте login и password.'
+    errorText.value = error?.response?.data?.error || 'РќРµ СѓРґР°Р»РѕСЃСЊ РІРѕР№С‚Рё. РџСЂРѕРІРµСЂСЊС‚Рµ login Рё password.'
   } finally {
     isLoading.value = false
   }
@@ -102,7 +102,7 @@ async function submitRegister() {
     })
     router.push('/chats')
   } catch (error) {
-    errorText.value = error?.response?.data?.error || 'Не удалось зарегистрироваться.'
+    errorText.value = error?.response?.data?.error || 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊСЃСЏ.'
   } finally {
     isLoading.value = false
   }
@@ -113,10 +113,10 @@ async function submitRegister() {
   <div class="h-screen flex items-center justify-center" :class="themeStore.darkTheme ? 'bg-[#0a0a0a]' : 'bg-gray-100'">
     <div class="w-full max-w-md p-8 rounded-2xl shadow-2xl" :class="themeStore.darkTheme ? 'bg-[#1a1a1a]' : 'bg-white'">
       <div class="flex justify-center mb-4">
-        <img src="/logo-mark.png" alt="Kindly Messenger" class="w-20 h-20 rounded-2xl object-contain">
+        <img src="/logo-mark.png" alt="Kindly messenger" class="w-20 h-20 rounded-2xl object-contain">
       </div>
       <h1 class="text-3xl font-bold text-center mb-2" :class="themeStore.darkTheme ? 'text-white' : 'text-gray-800'">
-        Мессенджер
+        Kindly messenger
       </h1>
       <p class="text-center mb-6" :class="themeStore.darkTheme ? 'text-gray-400' : 'text-gray-500'">
         {{ title }}
@@ -130,7 +130,7 @@ async function submitRegister() {
             : (themeStore.darkTheme ? 'bg-[#2a2a2a] text-gray-300' : 'bg-gray-200 text-gray-600')"
           @click="activeMode = 'login'; errorText = ''"
         >
-          Войти
+          Р’РѕР№С‚Рё
         </button>
         <button
           class="flex-1 py-2 rounded-xl transition-colors"
@@ -139,7 +139,7 @@ async function submitRegister() {
             : (themeStore.darkTheme ? 'bg-[#2a2a2a] text-gray-300' : 'bg-gray-200 text-gray-600')"
           @click="activeMode = 'register'; errorText = ''"
         >
-          Регистрация
+          Р РµРіРёСЃС‚СЂР°С†РёСЏ
         </button>
       </div>
 
@@ -163,7 +163,7 @@ async function submitRegister() {
           :disabled="isLoading"
           type="submit"
         >
-          {{ isLoading ? 'Входим...' : 'Войти' }}
+          {{ isLoading ? 'Р’С…РѕРґРёРј...' : 'Р’РѕР№С‚Рё' }}
         </button>
       </form>
 
@@ -194,7 +194,7 @@ async function submitRegister() {
           :disabled="isLoading"
           type="submit"
         >
-          {{ isLoading ? 'Создаем аккаунт...' : 'Зарегистрироваться' }}
+          {{ isLoading ? 'РЎРѕР·РґР°РµРј Р°РєРєР°СѓРЅС‚...' : 'Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊСЃСЏ' }}
         </button>
       </form>
 
@@ -204,3 +204,4 @@ async function submitRegister() {
     </div>
   </div>
 </template>
+
