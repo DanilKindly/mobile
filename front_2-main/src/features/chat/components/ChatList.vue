@@ -230,7 +230,7 @@ function pushStatusLabel(value) {
               </div>
               <div class="flex items-center gap-2 flex-shrink-0">
                 <div
-                  v-if="formatChatTime(chat.lastMessageSentAt)"
+                  v-if="Number(chat.unreadCount || 0) === 0 && formatChatTime(chat.lastMessageSentAt)"
                   class="text-[11px]"
                   :class="darkTheme ? 'text-[#8ea2b6]' : 'text-[#7f8a9a]'"
                 >

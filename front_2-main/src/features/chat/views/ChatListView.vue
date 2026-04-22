@@ -46,7 +46,8 @@ const onMessageCreated = async (event) => {
   const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
   if (senderUserId === String(currentUserId)) return
 
-  chatStore.incrementUnreadCount(chatId)
+  const messageId = message.id ?? message.Id ?? null
+  chatStore.incrementUnreadCount(chatId, messageId)
 
   if (document.hidden) {
     const permission = await getNotificationPermissionState()

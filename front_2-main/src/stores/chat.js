@@ -21,6 +21,7 @@ export const useChatStore = defineStore('chat', () => {
   const usersById = ref({})
   const usersFetchedAt = ref(0)
   const chatsFetchedAt = ref(0)
+  const unreadSeenByChatId = ref({})
 
   function withUnreadCount(chat, fallbackUnread = 0) {
     return {
@@ -164,6 +165,7 @@ export const useChatStore = defineStore('chat', () => {
         usersById.value = {}
         usersFetchedAt.value = 0
         chatsFetchedAt.value = 0
+        unreadSeenByChatId.value = {}
         return
       }
 
@@ -239,10 +241,26 @@ export const useChatStore = defineStore('chat', () => {
     chats.value = sortChatsByLastMessage(chats.value)
   }
 
-  function incrementUnreadCount(chatId) {
+  function incrementUnreadCount(chatId, messageId = null) {
     const normalizedChatId = normalizeId(chatId)
     const chat = chats.value.find((c) => normalizeId(c.id) === normalizedChatId)
     if (!chat) return
+
+    const normalizedMessageId = normalizeId(messageId)
+    if (normalizedMessageId) {
+      const seenMap = unreadSeenByChatId.value[normalizedChatId] || {}
+      if (seenMap[normalizedMessageId]) {
+        return
+      }
+
+      unreadSeenByChatId.value = {
+        ...unreadSeenByChatId.value,
+        [normalizedChatId]: {
+          ...seenMap,
+          [normalizedMessageId]: true,
+        },
+      }
+    }
 
     chat.unreadCount = Number(chat.unreadCount || 0) + 1
   }
@@ -253,6 +271,11 @@ export const useChatStore = defineStore('chat', () => {
     if (!chat) return
 
     chat.unreadCount = 0
+    if (unreadSeenByChatId.value[normalizedChatId]) {
+      const next = { ...unreadSeenByChatId.value }
+      delete next[normalizedChatId]
+      unreadSeenByChatId.value = next
+    }
   }
 
   function updatePreviewFromMessage(chatId, messageDto, currentUserId) {
