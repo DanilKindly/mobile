@@ -268,8 +268,15 @@ const onMessageCreated = async (event) => {
   const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
   const isMine = senderUserId === String(currentUserId)
   if (!isMine) {
-    const messageId = message.id ?? message.Id ?? null
-    chatStore.incrementUnreadCount(incomingChatId, messageId)
+    const unreadKey =
+      message.messageId ??
+      message.MessageId ??
+      (message.version != null ? `v:${message.version}` : null) ??
+      (message.Version != null ? `v:${message.Version}` : null) ??
+      message.id ??
+      message.Id ??
+      null
+    chatStore.incrementUnreadCount(incomingChatId, unreadKey)
   }
 
   if (!isMine && document.hidden) {
