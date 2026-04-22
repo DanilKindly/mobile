@@ -26,8 +26,6 @@ const currentUser = ref(null)
 const chatId = ref(null)
 const chatName = ref('')
 const activePeerId = ref(null)
-const isChatLoading = ref(false)
-const isMessageViewportReady = ref(false)
 const showUserSearch = ref(false)
 const messagesContainer = ref(null)
 const stickToBottom = ref(true)
@@ -37,18 +35,11 @@ const lastSeenByUser = ref({})
 const routeChatId = computed(() => String(route.params.chatId || ''))
 
 let openChatRequestId = 0
-let scrollTimers = []
 let lastScrollTop = 0
 let presenceState = null
 let blurPresenceTimer = null
 let pageHideHandler = null
-let autoScrollUntil = 0
 let realtimeUnsubscribers = []
-
-function clearScrollTimers() {
-  scrollTimers.forEach((id) => clearTimeout(id))
-  scrollTimers = []
-}
 
 function clearBlurPresenceTimer() {
   if (blurPresenceTimer) {
@@ -103,24 +94,18 @@ function isNearBottom() {
   const el = messagesContainer.value
   if (!el) return true
   const threshold = 120
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
+  return el.scrollTop <= threshold
 }
 
-function scrollToBottomNow() {
+function pinToLatestNow() {
   const el = messagesContainer.value
   if (!el) return
-  autoScrollUntil = Date.now() + 320
-  el.scrollTop = el.scrollHeight
+  el.scrollTop = 0
 }
 
-async function scrollToBottomStable() {
-  clearScrollTimers()
-
+async function pinToLatest() {
   await nextTick()
-  scrollToBottomNow()
-
-  scrollTimers.push(setTimeout(scrollToBottomNow, 60))
-  scrollTimers.push(setTimeout(scrollToBottomNow, 180))
+  pinToLatestNow()
 }
 
 function dismissKeyboardIfNeeded() {
@@ -142,10 +127,7 @@ function handleMessagesScroll() {
 
   const delta = Math.abs(el.scrollTop - lastScrollTop)
   lastScrollTop = el.scrollTop
-
-  const isAutoScroll = Date.now() < autoScrollUntil
-
-  if (delta > 8 && !isAutoScroll) {
+  if (delta > 8) {
     dismissKeyboardIfNeeded()
   }
 
@@ -272,8 +254,8 @@ const onMessageCreated = async (event) => {
       await messengerApi.markMessagesAsRead(incomingChatId, currentUserId)
     }
 
-    if (stickToBottom.value && isMessageViewportReady.value) {
-      await scrollToBottomStable()
+    if (stickToBottom.value) {
+      await pinToLatest()
     }
 
     return
@@ -318,8 +300,8 @@ const onChatPreviewChanged = (event) => {
 }
 
 async function handleMessageMediaLoaded() {
-  if (!stickToBottom.value || !isMessageViewportReady.value) return
-  await scrollToBottomStable()
+  if (!stickToBottom.value) return
+  await pinToLatest()
 }
 
 const onPresenceChanged = (userId, isOnline, lastSeenAt) => {
@@ -354,23 +336,20 @@ async function openChat(targetChatId) {
   if (!currentUserId) return
 
   const requestId = ++openChatRequestId
-  isChatLoading.value = true
-  isMessageViewportReady.value = false
   chatId.value = targetChatId
   messageStore.setActiveChat(targetChatId)
   setImmediateChatName(targetChatId)
+  stickToBottom.value = true
 
   try {
-    await messageStore.loadMessagesByChatId(targetChatId, currentUserId)
+    const loadPromise = messageStore.loadMessagesByChatId(targetChatId, currentUserId)
 
     if (requestId !== openChatRequestId) return
 
     chatName.value = resolveChatName(targetChatId)
     if (requestId !== openChatRequestId) return
 
-    stickToBottom.value = true
-    await scrollToBottomStable()
-    isMessageViewportReady.value = true
+    await loadPromise
 
     // Do not block initial open on read receipt call.
     messengerApi.markMessagesAsRead(targetChatId, currentUserId)
@@ -379,11 +358,6 @@ async function openChat(targetChatId) {
     console.error('Failed to open chat:', e)
     if (requestId === openChatRequestId) {
       messageStore.clearMessages()
-      isMessageViewportReady.value = true
-    }
-  } finally {
-    if (requestId === openChatRequestId) {
-      isChatLoading.value = false
     }
   }
 }
@@ -412,12 +386,15 @@ const peerStatusText = computed(() => {
   return `был(а) в сети ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 })
 
+const renderedMessages = computed(() => {
+  return [...messageStore.messages].reverse()
+})
+
 watch(
   () => messageStore.messages.length,
   async () => {
-    if (!isMessageViewportReady.value) return
     if (stickToBottom.value) {
-      await scrollToBottomStable()
+      await pinToLatest()
     }
   },
   { flush: 'post' },
@@ -493,7 +470,6 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  clearScrollTimers()
   clearBlurPresenceTimer()
   updatePresence(false)
 
@@ -590,26 +566,21 @@ async function handleSendMedia(file) {
       <ChatHeader :user-name="chatName || 'Собеседник'" :user-state="peerStatusText" :dark-theme="themeStore.darkTheme" :show-back="true" />
 
       <main
+        :key="chatId || routeChatId"
         ref="messagesContainer"
         class="messages-container flex-1 px-4 sm:px-6 lg:px-8 py-3 overflow-y-auto"
         :class="themeStore.darkTheme ? 'bg-[#0E1621] dark-theme' : 'bg-white'"
         style="z-index: 50;"
         @scroll="handleMessagesScroll"
       >
-        <div class="flex flex-col justify-end min-h-full" v-show="isMessageViewportReady">
+        <div class="flex flex-col-reverse min-h-full">
           <Message
-            v-for="msg in messageStore.messages"
+            v-for="msg in renderedMessages"
             :key="msg.id || `${msg.time}-${msg.text}`"
             :message="msg"
             :dark-theme="themeStore.darkTheme"
             @media-loaded="handleMessageMediaLoaded"
           />
-        </div>
-
-        <div v-if="!isMessageViewportReady" class="h-full flex items-center justify-center">
-          <div class="text-sm" :class="themeStore.darkTheme ? 'text-[#6D7F8F]' : 'text-[#868686]'">
-            {{ isChatLoading ? 'Открываем чат...' : 'Загружаем сообщения...' }}
-          </div>
         </div>
       </main>
 
