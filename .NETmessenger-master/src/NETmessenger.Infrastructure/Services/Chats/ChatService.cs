@@ -102,6 +102,8 @@ public sealed class ChatService(AppDbContext dbContext) : IChatService
             throw new ResourceNotFoundException($"User '{userId}' was not found.");
         }
 
+        await CleanupEmptyDirectDuplicateChatsForUserAsync(userId, cancellationToken);
+
         var chats = await dbContext.Chats
             .AsNoTracking()
             .Where(c => c.Participants.Any(p => p.Id == userId))
@@ -126,7 +128,7 @@ public sealed class ChatService(AppDbContext dbContext) : IChatService
             .OrderByDescending(c => c.LastMessage != null ? c.LastMessage.SentAt : c.CreatedAt)
             .ToListAsync(cancellationToken);
 
-        return chats
+        var normalizedChats = chats
             .Select(c => new GetChatDto(
                 c.Id,
                 c.CreatedAt,
@@ -138,6 +140,8 @@ public sealed class ChatService(AppDbContext dbContext) : IChatService
                 c.LastMessage?.SenderId,
                 c.LastMessage?.SentAt))
             .ToArray();
+
+        return DeduplicateDirectChats(normalizedChats);
     }
 
     private static string? NormalizeName(string? name)
@@ -173,5 +177,103 @@ public sealed class ChatService(AppDbContext dbContext) : IChatService
                     .Select(m => (DateTime?)m.SentAt)
                     .FirstOrDefault()))
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task CleanupEmptyDirectDuplicateChatsForUserAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var directChats = await dbContext.Chats
+            .Where(c => !c.IsGroup && c.Participants.Any(p => p.Id == userId))
+            .Select(c => new
+            {
+                c.Id,
+                c.CreatedAt,
+                ParticipantUserIds = c.Participants.Select(p => p.Id).ToArray(),
+                HasMessages = c.Messages.Any(),
+                LastMessageSentAt = c.Messages
+                    .OrderByDescending(m => m.SentAt)
+                    .Select(m => (DateTime?)m.SentAt)
+                    .FirstOrDefault()
+            })
+            .ToListAsync(cancellationToken);
+
+        var duplicateGroups = directChats
+            .GroupBy(c => BuildDirectPairKey(c.ParticipantUserIds))
+            .Where(g => !string.IsNullOrEmpty(g.Key) && g.Count() > 1);
+
+        var emptyDuplicateIdsToDelete = new List<Guid>();
+
+        foreach (var group in duplicateGroups)
+        {
+            var canonical = group
+                .OrderByDescending(c => c.LastMessageSentAt.HasValue)
+                .ThenByDescending(c => c.LastMessageSentAt)
+                .ThenByDescending(c => c.CreatedAt)
+                .ThenBy(c => c.Id)
+                .First();
+
+            var emptyDuplicates = group
+                .Where(c => c.Id != canonical.Id && !c.HasMessages)
+                .Select(c => c.Id);
+
+            emptyDuplicateIdsToDelete.AddRange(emptyDuplicates);
+        }
+
+        if (emptyDuplicateIdsToDelete.Count == 0)
+        {
+            return;
+        }
+
+        var chatsToDelete = await dbContext.Chats
+            .Where(c => emptyDuplicateIdsToDelete.Contains(c.Id))
+            .ToListAsync(cancellationToken);
+
+        if (chatsToDelete.Count == 0)
+        {
+            return;
+        }
+
+        dbContext.Chats.RemoveRange(chatsToDelete);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static IReadOnlyCollection<GetChatDto> DeduplicateDirectChats(IReadOnlyCollection<GetChatDto> chats)
+    {
+        var grouped = chats
+            .GroupBy(c => c.IsGroup ? $"group:{c.ChatId:D}" : $"direct:{BuildDirectPairKey(c.ParticipantUserIds)}")
+            .Select(group =>
+            {
+                if (group.First().IsGroup)
+                {
+                    return group.First();
+                }
+
+                return group
+                    .OrderByDescending(c => c.LastMessageSentAt.HasValue)
+                    .ThenByDescending(c => c.LastMessageSentAt)
+                    .ThenByDescending(c => c.CreatedAt)
+                    .ThenBy(c => c.ChatId)
+                    .First();
+            })
+            .OrderByDescending(c => c.LastMessageSentAt ?? c.CreatedAt)
+            .ToArray();
+
+        return grouped;
+    }
+
+    private static string BuildDirectPairKey(IEnumerable<Guid> participantUserIds)
+    {
+        var normalized = participantUserIds
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .OrderBy(id => id)
+            .Select(id => id.ToString("D"))
+            .ToArray();
+
+        if (normalized.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return string.Join(":", normalized);
     }
 }

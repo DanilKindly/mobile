@@ -24,5 +24,10 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.PasswordHash)
             .HasMaxLength(256)
             .IsRequired();
+
+        builder.Property(u => u.LastSeenAt)
+            .HasColumnType("timestamp with time zone")
+            .HasDefaultValueSql("NOW()")
+            .IsRequired();
     }
 }

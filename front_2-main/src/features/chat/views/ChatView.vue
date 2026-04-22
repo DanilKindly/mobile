@@ -372,17 +372,18 @@ async function handleSelectChat(chat) {
 
 const peerStatusText = computed(() => {
   const peer = String(activePeerId.value || '').toLowerCase()
-  if (!peer) return 'был(а) в сети недавно'
+  if (!peer) return 'был(а) в сети --:--'
 
   if (onlineUsers.value[peer]) {
     return 'в сети'
   }
 
-  const lastSeen = lastSeenByUser.value[peer]
-  if (!lastSeen) return 'был(а) в сети недавно'
+  const fallbackLastSeen = chatStore.getUserById(peer)?.lastSeenAt || null
+  const lastSeen = lastSeenByUser.value[peer] || fallbackLastSeen
+  if (!lastSeen) return 'был(а) в сети --:--'
 
   const dt = new Date(lastSeen)
-  if (Number.isNaN(dt.getTime())) return 'был(а) в сети недавно'
+  if (Number.isNaN(dt.getTime())) return 'был(а) в сети --:--'
 
   return `был(а) в сети ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 })
@@ -448,6 +449,8 @@ onMounted(async () => {
     // Refresh chats in background without blocking chat open.
     chatStore.loadChats().catch((e) => console.error('Failed to refresh chats:', e))
   }
+
+  chatStore.ensureUsers().catch((e) => console.error('Failed to load users for status fallback:', e))
 
   await ensureRealtime()
   await Promise.all([

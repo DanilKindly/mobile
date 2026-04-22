@@ -46,6 +46,7 @@ function normalizeUser(user) {
     userId: user.userId ?? user.UserId,
     login: user.login ?? user.Login,
     username: user.username ?? user.Username,
+    lastSeenAt: user.lastSeenAt ?? user.LastSeenAt ?? null,
   }
 }
 

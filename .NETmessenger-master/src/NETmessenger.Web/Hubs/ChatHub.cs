@@ -2,11 +2,12 @@ using System.Collections.Concurrent;
 using Microsoft.AspNetCore.SignalR;
 using NETmessenger.Application.Abstractions.Chats;
 using NETmessenger.Application.Abstractions.Messages;
+using NETmessenger.Application.Abstractions.Users;
 using NETmessenger.Contracts.Messages;
 
 namespace NETmessenger.Web.Hubs;
 
-public class ChatHub(IMessageService messageService, IChatService chatService) : Hub
+public class ChatHub(IMessageService messageService, IChatService chatService, IUserService userService) : Hub
 {
     private static readonly ConcurrentDictionary<string, Guid> ConnectionToUser = new();
     private static readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>> UserConnections = new();
@@ -81,7 +82,9 @@ public class ChatHub(IMessageService messageService, IChatService chatService) :
         var becameOffline = UnregisterConnection(Context.ConnectionId, userId);
         if (becameOffline)
         {
-            await Clients.All.SendAsync("PresenceChanged", userId, false, DateTime.UtcNow);
+            var seenAtUtc = DateTime.UtcNow;
+            await userService.UpdateLastSeenAsync(userId, seenAtUtc, CancellationToken.None);
+            await Clients.All.SendAsync("PresenceChanged", userId, false, seenAtUtc);
         }
     }
 
@@ -100,7 +103,9 @@ public class ChatHub(IMessageService messageService, IChatService chatService) :
         var becameOffline = UnregisterConnection(Context.ConnectionId);
         if (becameOffline.HasValue)
         {
-            await Clients.All.SendAsync("PresenceChanged", becameOffline.Value, false, DateTime.UtcNow);
+            var seenAtUtc = DateTime.UtcNow;
+            await userService.UpdateLastSeenAsync(becameOffline.Value, seenAtUtc, CancellationToken.None);
+            await Clients.All.SendAsync("PresenceChanged", becameOffline.Value, false, seenAtUtc);
         }
 
         await base.OnDisconnectedAsync(exception);

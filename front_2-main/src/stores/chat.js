@@ -6,6 +6,15 @@ function normalizeId(id) {
   return String(id || '').toLowerCase()
 }
 
+function buildDirectPairKey(participantUserIds) {
+  const normalized = (participantUserIds || [])
+    .map((id) => normalizeId(id))
+    .filter(Boolean)
+    .sort()
+
+  return normalized.join(':')
+}
+
 export const useChatStore = defineStore('chat', () => {
   const chats = ref([])
   const currentUser = ref(null)
@@ -57,6 +66,7 @@ export const useChatStore = defineStore('chat', () => {
 
       return {
         id: chatId,
+        createdAt: c.createdAt ?? c.CreatedAt ?? null,
         name: displayName,
         lastMessage: preview,
         lastMessageSentAt: c.lastMessageSentAt ?? c.LastMessageSentAt ?? null,
@@ -66,6 +76,45 @@ export const useChatStore = defineStore('chat', () => {
         isGroup,
       }
     })
+  }
+
+  function dedupeDirectChats(items) {
+    const directByPair = new Map()
+    const groups = []
+
+    for (const chat of items) {
+      if (chat.isGroup) {
+        groups.push(chat)
+        continue
+      }
+
+      const pairKey = buildDirectPairKey(chat.participantUserIds)
+      if (!pairKey) {
+        groups.push(chat)
+        continue
+      }
+
+      const existing = directByPair.get(pairKey)
+      if (!existing) {
+        directByPair.set(pairKey, chat)
+        continue
+      }
+
+      const chatLastTs = chat.lastMessageSentAt ? new Date(chat.lastMessageSentAt).getTime() : 0
+      const existingLastTs = existing.lastMessageSentAt ? new Date(existing.lastMessageSentAt).getTime() : 0
+      const chatCreatedTs = chat.createdAt ? new Date(chat.createdAt).getTime() : 0
+      const existingCreatedTs = existing.createdAt ? new Date(existing.createdAt).getTime() : 0
+
+      const preferCurrent =
+        chatLastTs > existingLastTs ||
+        (chatLastTs === existingLastTs && chatCreatedTs > existingCreatedTs)
+
+      if (preferCurrent) {
+        directByPair.set(pairKey, chat)
+      }
+    }
+
+    return [...groups, ...directByPair.values()]
   }
 
   function sortChatsByLastMessage(items) {
@@ -123,7 +172,7 @@ export const useChatStore = defineStore('chat', () => {
 
       // Render chat list instantly using cached users (if available).
       const cachedUsers = Object.values(usersById.value)
-      chats.value = mapChats(backendChats, cachedUsers, currentUserId)
+      chats.value = sortChatsByLastMessage(dedupeDirectChats(mapChats(backendChats, cachedUsers, currentUserId)))
 
       // Hydrate user names in background so UI is not blocked by /api/users.
       ensureUsers(forceUsersRefresh)
@@ -135,7 +184,7 @@ export const useChatStore = defineStore('chat', () => {
           const mappedWithUsers = mapChats(backendChats, allUsers, currentUserId)
           const liveById = new Map(chats.value.map((chat) => [normalizeId(chat.id), chat]))
 
-          chats.value = mappedWithUsers.map((mappedChat) => {
+          const mergedWithLive = mappedWithUsers.map((mappedChat) => {
             const liveChat = liveById.get(normalizeId(mappedChat.id))
             if (!liveChat) return mappedChat
 
@@ -155,6 +204,8 @@ export const useChatStore = defineStore('chat', () => {
               lastMessageType: liveChat.lastMessageType,
             }
           })
+
+          chats.value = sortChatsByLastMessage(dedupeDirectChats(mergedWithLive))
         })
         .catch((e) => {
           console.error('Failed to hydrate users for chats:', e)
@@ -214,7 +265,23 @@ export const useChatStore = defineStore('chat', () => {
       return
     }
 
-    chats.value = sortChatsByLastMessage([...chats.value, mapped])
+    if (!mapped.isGroup) {
+      const pairKey = buildDirectPairKey(mapped.participantUserIds)
+      if (pairKey) {
+        const directDuplicateIndex = chats.value.findIndex((c) => !c.isGroup && buildDirectPairKey(c.participantUserIds) === pairKey)
+        if (directDuplicateIndex >= 0) {
+          const merged = [...chats.value]
+          merged[directDuplicateIndex] = {
+            ...merged[directDuplicateIndex],
+            ...mapped,
+          }
+          chats.value = sortChatsByLastMessage(dedupeDirectChats(merged))
+          return
+        }
+      }
+    }
+
+    chats.value = sortChatsByLastMessage(dedupeDirectChats([...chats.value, mapped]))
   }
 
   return {

@@ -11,6 +11,7 @@ public interface IUserService
 
     Task<AuthResponseDto> RegisterAsync(RegisterUserDto dto, CancellationToken cancellationToken);
     Task<AuthResponseDto> LoginAsync(LoginUserDto dto, CancellationToken cancellationToken);
+    Task UpdateLastSeenAsync(Guid userId, DateTime seenAtUtc, CancellationToken cancellationToken);
 
 }
 

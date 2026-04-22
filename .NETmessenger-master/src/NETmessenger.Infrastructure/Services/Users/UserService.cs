@@ -31,7 +31,7 @@ public sealed class UserService : IUserService
         return await _dbContext.Users
             .AsNoTracking()
             .OrderBy(u => u.Login)
-            .Select(u => new GetUserDto(u.Id, u.Login, u.Username))
+            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
             .ToArrayAsync(cancellationToken);
     }
 
@@ -44,7 +44,7 @@ public sealed class UserService : IUserService
             .Where(u => u.Login.ToLower().Contains(normalizedLogin))
             .OrderBy(u => u.Login)
             .Take(20)
-            .Select(u => new GetUserDto(u.Id, u.Login, u.Username))
+            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
             .ToArrayAsync(cancellationToken);
     }
 
@@ -53,7 +53,7 @@ public sealed class UserService : IUserService
         return await _dbContext.Users
             .AsNoTracking()
             .Where(u => u.Id == userId)
-            .Select(u => new GetUserDto(u.Id, u.Login, u.Username))
+            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -72,7 +72,8 @@ public sealed class UserService : IUserService
             Id = Guid.NewGuid(),
             Login = login,
             Username = username,
-            PasswordHash = _passwordHasher.GenerateHash(password)
+            PasswordHash = _passwordHasher.GenerateHash(password),
+            LastSeenAt = DateTime.UtcNow,
         };
 
         _dbContext.Users.Add(user);
@@ -101,6 +102,9 @@ public sealed class UserService : IUserService
             throw new DomainValidationException("Invalid credentials.");
         }
 
+        user.LastSeenAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
         var token = _jwtService.GenerateToken(user);
 
         return new AuthResponseDto(user.Id, user.Login, user.Username, token);
@@ -124,6 +128,25 @@ public sealed class UserService : IUserService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return MapToDto(user);
+    }
+
+    public async Task UpdateLastSeenAsync(Guid userId, DateTime seenAtUtc, CancellationToken cancellationToken)
+    {
+        if (userId == Guid.Empty)
+        {
+            return;
+        }
+
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+
+        if (user is null)
+        {
+            return;
+        }
+
+        user.LastSeenAt = DateTime.SpecifyKind(seenAtUtc, DateTimeKind.Utc);
+        await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private async Task EnsureLoginIsUniqueAsync(string login, Guid? exceptUserId, CancellationToken cancellationToken)
@@ -176,6 +199,6 @@ public sealed class UserService : IUserService
 
     private static GetUserDto MapToDto(User user)
     {
-        return new GetUserDto(user.Id, user.Login, user.Username);
+        return new GetUserDto(user.Id, user.Login, user.Username, user.LastSeenAt);
     }
 }
