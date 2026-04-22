@@ -217,13 +217,13 @@ function pushStatusLabel(value) {
         ]"
         @click="selectChat(chat)"
       >
-        <div class="flex items-center gap-3 min-w-0">
+        <div class="flex items-start gap-3 min-w-0">
           <div
             class="w-[48px] h-[48px] rounded-full flex-shrink-0 bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-[17px] font-semibold"
           >
             {{ chat.name[0]?.toUpperCase() || '?' }}
           </div>
-          <div class="min-w-0 flex-1">
+          <div class="min-w-0 flex-1 pt-[1px]">
             <div class="flex items-center justify-between gap-2">
               <div :class="['text-[15px] font-semibold truncate', darkTheme ? 'text-white' : 'text-gray-900']">
                 {{ chat.name }}

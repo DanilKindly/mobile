@@ -82,7 +82,8 @@ export const useChatStore = defineStore('chat', () => {
         lastMessageType: c.lastMessageType ?? c.LastMessageType ?? null,
         participantUserIds: participantIds,
         isGroup,
-        unreadCount: 0,
+        // Keep unread count nullable here so live fallback is preserved on preview refreshes.
+        unreadCount: c.unreadCount ?? c.UnreadCount ?? null,
       }
     })
   }
