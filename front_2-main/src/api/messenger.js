@@ -432,8 +432,11 @@ export const messengerApi = {
       limit: options.limit ?? 40,
     }
 
-    if (options.beforeVersion != null) {
-      params.beforeVersion = options.beforeVersion
+    if (options.beforeSentAt != null) {
+      params.beforeSentAt = options.beforeSentAt
+    }
+    if (options.beforeMessageId != null) {
+      params.beforeMessageId = options.beforeMessageId
     }
 
     const response = await api.get(`/api/chats/${chatId}/messages`, { params })
@@ -445,7 +448,8 @@ export const messengerApi = {
     return {
       messages,
       hasMoreOlder: Boolean(page.hasMoreOlder ?? page.HasMoreOlder ?? false),
-      nextBeforeVersion: Number(page.nextBeforeVersion ?? page.NextBeforeVersion ?? 0) || null,
+      nextBeforeSentAt: page.nextBeforeSentAt ?? page.NextBeforeSentAt ?? null,
+      nextBeforeMessageId: page.nextBeforeMessageId ?? page.NextBeforeMessageId ?? null,
     }
   },
 

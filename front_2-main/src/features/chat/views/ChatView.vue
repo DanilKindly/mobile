@@ -42,6 +42,7 @@ let pageHideHandler = null
 let realtimeUnsubscribers = []
 let olderLoadInFlight = false
 let isOpeningChat = false
+let userStartedOlderHistoryScroll = false
 
 function clearBlurPresenceTimer() {
   if (blurPresenceTimer) {
@@ -138,11 +139,12 @@ function handleMessagesScroll() {
   const delta = Math.abs(el.scrollTop - lastScrollTop)
   lastScrollTop = el.scrollTop
   if (delta > 8) {
+    userStartedOlderHistoryScroll = true
     dismissKeyboardIfNeeded()
   }
 
   stickToBottom.value = isNearBottom()
-  if (isNearOlderEdge()) {
+  if (userStartedOlderHistoryScroll && !stickToBottom.value && isNearOlderEdge()) {
     loadOlderMessagesPreservingViewport()
   }
 }
@@ -380,6 +382,7 @@ async function openChat(targetChatId) {
   setImmediateChatName(targetChatId)
   stickToBottom.value = true
   isOpeningChat = true
+  userStartedOlderHistoryScroll = false
 
   try {
     const loadPromise = messageStore.loadLatestMessagesByChatId(targetChatId, currentUserId, 40)
@@ -390,6 +393,7 @@ async function openChat(targetChatId) {
     if (requestId !== openChatRequestId) return
 
     await loadPromise
+    await pinToLatest()
 
     // Do not block initial open on read receipt call.
     messengerApi.markMessagesAsRead(targetChatId, currentUserId)

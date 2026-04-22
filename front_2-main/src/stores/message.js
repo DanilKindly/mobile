@@ -85,7 +85,8 @@ export const useMessageStore = defineStore('message', () => {
   function getPageState(chatId) {
     return messagePageByChatId.value[normalizeId(chatId)] || {
       hasMoreOlder: false,
-      nextBeforeVersion: null,
+      nextBeforeSentAt: null,
+      nextBeforeMessageId: null,
       limit: 40,
       isLoadingOlder: false,
       isLoadingLatest: false,
@@ -164,7 +165,8 @@ export const useMessageStore = defineStore('message', () => {
       setPageState(chatId, {
         isLoadingLatest: false,
         hasMoreOlder: page.hasMoreOlder,
-        nextBeforeVersion: page.nextBeforeVersion,
+        nextBeforeSentAt: page.nextBeforeSentAt,
+        nextBeforeMessageId: page.nextBeforeMessageId,
         limit,
       })
     } catch (e) {
@@ -176,7 +178,7 @@ export const useMessageStore = defineStore('message', () => {
 
   async function loadOlderMessagesByChatId(chatId, currentUserId) {
     const state = getPageState(chatId)
-    if (state.isLoadingOlder || !state.hasMoreOlder || !state.nextBeforeVersion) {
+    if (state.isLoadingOlder || !state.hasMoreOlder || !state.nextBeforeSentAt) {
       return false
     }
 
@@ -186,7 +188,8 @@ export const useMessageStore = defineStore('message', () => {
     try {
       const page = await messengerApi.getMessages(chatId, {
         limit: state.limit || 40,
-        beforeVersion: state.nextBeforeVersion,
+        beforeSentAt: state.nextBeforeSentAt,
+        beforeMessageId: state.nextBeforeMessageId,
       })
 
       const incoming = (page.messages || []).map((m) => buildStoreMessage(m, currentUserId))
@@ -201,7 +204,8 @@ export const useMessageStore = defineStore('message', () => {
       setPageState(chatId, {
         isLoadingOlder: false,
         hasMoreOlder: page.hasMoreOlder,
-        nextBeforeVersion: page.nextBeforeVersion,
+        nextBeforeSentAt: page.nextBeforeSentAt,
+        nextBeforeMessageId: page.nextBeforeMessageId,
       })
       return incoming.length > 0
     } catch (e) {
@@ -326,7 +330,8 @@ export const useMessageStore = defineStore('message', () => {
       ...messagePageByChatId.value,
       [chatKey]: {
         hasMoreOlder: false,
-        nextBeforeVersion: null,
+        nextBeforeSentAt: null,
+        nextBeforeMessageId: null,
         limit: 40,
         isLoadingOlder: false,
         isLoadingLatest: false,

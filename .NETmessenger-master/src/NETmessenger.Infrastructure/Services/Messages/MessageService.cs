@@ -35,7 +35,8 @@ public sealed class MessageService(AppDbContext dbContext, IVoiceStorage voiceSt
 
     public async Task<GetMessagesPageDto> GetPageByChatIdAsync(
         Guid chatId,
-        long? beforeVersion,
+        DateTime? beforeSentAt,
+        Guid? beforeMessageId,
         int limit,
         CancellationToken cancellationToken)
     {
@@ -51,13 +52,20 @@ public sealed class MessageService(AppDbContext dbContext, IVoiceStorage voiceSt
             .AsNoTracking()
             .Where(m => m.ChatId == chatId);
 
-        if (beforeVersion.HasValue)
+        if (beforeSentAt.HasValue && beforeMessageId.HasValue)
         {
-            query = query.Where(m => m.Version < beforeVersion.Value);
+            query = query.Where(m =>
+                m.SentAt < beforeSentAt.Value ||
+                (m.SentAt == beforeSentAt.Value && m.Id.CompareTo(beforeMessageId.Value) < 0));
+        }
+        else if (beforeSentAt.HasValue)
+        {
+            query = query.Where(m => m.SentAt < beforeSentAt.Value);
         }
 
         var pageWindow = await query
-            .OrderByDescending(m => m.Version)
+            .OrderByDescending(m => m.SentAt)
+            .ThenByDescending(m => m.Version)
             .ThenByDescending(m => m.Id)
             .Take(normalizedLimit + 1)
             .Select(MapProjection())
@@ -70,15 +78,21 @@ public sealed class MessageService(AppDbContext dbContext, IVoiceStorage voiceSt
         }
 
         var ordered = pageWindow
-            .OrderBy(m => m.Version)
+            .OrderBy(m => m.SentAt)
+            .ThenBy(m => m.Version)
             .ThenBy(m => m.MessageId)
             .ToArray();
 
-        var nextBeforeVersion = ordered.Length > 0
-            ? ordered.Min(m => m.Version)
-            : beforeVersion;
+        DateTime? nextBeforeSentAt = null;
+        Guid? nextBeforeMessageId = null;
+        if (ordered.Length > 0)
+        {
+            var oldest = ordered.First();
+            nextBeforeSentAt = oldest.SentAt;
+            nextBeforeMessageId = oldest.MessageId;
+        }
 
-        return new GetMessagesPageDto(ordered, hasMoreOlder, nextBeforeVersion);
+        return new GetMessagesPageDto(ordered, hasMoreOlder, nextBeforeSentAt, nextBeforeMessageId);
     }
 
     public async Task<GetMessageDto> SendAsync(Guid chatId, SendMessageDto dto, CancellationToken cancellationToken)

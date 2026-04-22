@@ -14,13 +14,19 @@ public class MessagesController(IMessageService messageService, IHubContext<Chat
     [HttpGet]
     public async Task<ActionResult<GetMessagesPageDto>> GetByChatId(
         Guid chatId,
-        [FromQuery] long? beforeVersion = null,
+        [FromQuery] DateTime? beforeSentAt = null,
+        [FromQuery] Guid? beforeMessageId = null,
         [FromQuery] int limit = 40,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var messagesPage = await messageService.GetPageByChatIdAsync(chatId, beforeVersion, limit, cancellationToken);
+            var messagesPage = await messageService.GetPageByChatIdAsync(
+                chatId,
+                beforeSentAt,
+                beforeMessageId,
+                limit,
+                cancellationToken);
             return Ok(messagesPage);
         }
         catch (ResourceNotFoundException)
