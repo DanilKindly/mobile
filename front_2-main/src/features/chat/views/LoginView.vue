@@ -113,7 +113,12 @@ async function submitRegister() {
   <div class="h-screen flex items-center justify-center" :class="themeStore.darkTheme ? 'bg-[#0a0a0a]' : 'bg-gray-100'">
     <div class="w-full max-w-md p-8 rounded-2xl shadow-2xl" :class="themeStore.darkTheme ? 'bg-[#1a1a1a]' : 'bg-white'">
       <div class="flex justify-center mb-4">
-        <img src="/logo-mark.png" alt="Kindly messenger" class="w-20 h-20 rounded-2xl object-contain">
+        <div class="km-logo" role="img" aria-label="Kindly messenger logo">
+          <img src="/logo-mark.png" alt="" class="km-logo__layer km-logo__outer">
+          <img src="/logo-mark.png" alt="" class="km-logo__layer km-logo__k">
+          <img src="/logo-mark.png" alt="" class="km-logo__layer km-logo__m">
+          <span class="km-logo__glow" aria-hidden="true"></span>
+        </div>
       </div>
       <h1 class="text-3xl font-bold text-center mb-2" :class="themeStore.darkTheme ? 'text-white' : 'text-gray-800'">
         Kindly messenger
@@ -204,3 +209,130 @@ async function submitRegister() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.km-logo {
+  position: relative;
+  width: 5rem;
+  height: 5rem;
+  isolation: isolate;
+  animation: logo-settle 300ms cubic-bezier(0.2, 0.8, 0.25, 1) 980ms both;
+}
+
+.km-logo__layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  will-change: transform, opacity, filter;
+  pointer-events: none;
+}
+
+.km-logo__outer {
+  clip-path: polygon(5% 18%, 40% 0%, 66% 0%, 95% 18%, 95% 82%, 66% 100%, 36% 100%, 5% 82%);
+  animation: logo-outer-reveal 520ms cubic-bezier(0.16, 0.84, 0.2, 1) 40ms both;
+}
+
+.km-logo__k {
+  clip-path: polygon(8% 8%, 56% 8%, 44% 53%, 8% 70%);
+  animation: logo-inner-k 460ms cubic-bezier(0.2, 0.9, 0.25, 1) 360ms both;
+}
+
+.km-logo__m {
+  clip-path: polygon(30% 42%, 91% 17%, 92% 96%, 60% 96%);
+  animation: logo-inner-m 440ms cubic-bezier(0.2, 0.9, 0.25, 1) 620ms both;
+}
+
+.km-logo__glow {
+  position: absolute;
+  inset: -12%;
+  border-radius: 1.3rem;
+  background: radial-gradient(circle at center, rgba(37, 99, 235, 0.28), rgba(37, 99, 235, 0) 68%);
+  opacity: 0;
+  filter: blur(6px);
+  z-index: -1;
+  animation: logo-glow 320ms ease-out 1020ms both;
+}
+
+@keyframes logo-outer-reveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.9) translateY(4px);
+    filter: blur(2px);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.02) translateY(0);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes logo-inner-k {
+  0% {
+    opacity: 0;
+    transform: translateX(-7px) scale(0.97);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes logo-inner-m {
+  0% {
+    opacity: 0;
+    transform: translateX(8px) scale(0.97);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes logo-settle {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes logo-glow {
+  0% {
+    opacity: 0;
+  }
+  45% {
+    opacity: 0.42;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .km-logo,
+  .km-logo__outer,
+  .km-logo__k,
+  .km-logo__m,
+  .km-logo__glow {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}
+</style>
