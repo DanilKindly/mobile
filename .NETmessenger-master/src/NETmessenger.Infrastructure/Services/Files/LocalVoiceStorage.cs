@@ -1,10 +1,11 @@
 using System.IO;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using NETmessenger.Application.Abstractions.Files;
 
 namespace NETmessenger.Infrastructure.Services.Files;
 
-public sealed class LocalVoiceStorage(IHostEnvironment environment) : IVoiceStorage
+public sealed class LocalVoiceStorage(IHostEnvironment environment, IConfiguration configuration) : IVoiceStorage
 {
     private const string VoiceFolderName = "voice";
 
@@ -17,7 +18,8 @@ public sealed class LocalVoiceStorage(IHostEnvironment environment) : IVoiceStor
         var safeExtension = Path.GetExtension(originalFileName);
         var fileName = $"{Guid.NewGuid():N}{safeExtension}";
 
-        var targetDirs = GetTargetDirectories(environment.ContentRootPath, VoiceFolderName);
+        var configuredRootPath = configuration["FileStorage:RootPath"];
+        var targetDirs = GetTargetDirectories(environment.ContentRootPath, VoiceFolderName, configuredRootPath);
         foreach (var dir in targetDirs)
         {
             Directory.CreateDirectory(dir);
@@ -44,12 +46,20 @@ public sealed class LocalVoiceStorage(IHostEnvironment environment) : IVoiceStor
         return new StoredVoiceFile(url, fileInfo.Length, contentType);
     }
 
-    private static List<string> GetTargetDirectories(string contentRootPath, string folderName)
+    private static List<string> GetTargetDirectories(string contentRootPath, string folderName, string? configuredRootPath)
     {
-        var result = new List<string>
+        var result = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(configuredRootPath))
         {
-            Path.Combine(contentRootPath, "wwwroot", folderName)
-        };
+            var normalizedRoot = Path.IsPathRooted(configuredRootPath)
+                ? configuredRootPath
+                : Path.GetFullPath(Path.Combine(contentRootPath, configuredRootPath));
+
+            result.Add(Path.Combine(normalizedRoot, folderName));
+        }
+
+        result.Add(Path.Combine(contentRootPath, "wwwroot", folderName));
 
         var projectWebRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "wwwroot", folderName));
         if (!result.Contains(projectWebRoot, StringComparer.OrdinalIgnoreCase))

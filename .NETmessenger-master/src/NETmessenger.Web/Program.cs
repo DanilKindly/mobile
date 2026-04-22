@@ -6,6 +6,7 @@ using NETmessenger.Infrastructure;
 using NETmessenger.Infrastructure.Persistence;
 using NETmessenger.Web.Hubs;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using System.Collections.Generic;
 
 const string DevClientCorsPolicy = "DevClient";
@@ -112,6 +113,30 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors(DevClientCorsPolicy);
 app.UseStaticFiles();
+
+var configuredFileStorageRoot = builder.Configuration["FileStorage:RootPath"];
+if (!string.IsNullOrWhiteSpace(configuredFileStorageRoot))
+{
+    var normalizedStorageRoot = Path.IsPathRooted(configuredFileStorageRoot)
+        ? configuredFileStorageRoot
+        : Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, configuredFileStorageRoot));
+
+    var mediaPath = Path.Combine(normalizedStorageRoot, "media");
+    Directory.CreateDirectory(mediaPath);
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(mediaPath),
+        RequestPath = "/media"
+    });
+
+    var voicePath = Path.Combine(normalizedStorageRoot, "voice");
+    Directory.CreateDirectory(voicePath);
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(voicePath),
+        RequestPath = "/voice"
+    });
+}
 
 app.MapGet("/", () => Results.Ok(new { status = "ok", service = "kindly-messenger-api" }));
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
