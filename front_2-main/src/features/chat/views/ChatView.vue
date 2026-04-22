@@ -97,21 +97,20 @@ function isNearBottom() {
   const el = messagesContainer.value
   if (!el) return true
   const threshold = 120
-  return el.scrollTop <= threshold
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
 }
 
 function isNearOlderEdge() {
   const el = messagesContainer.value
   if (!el) return false
   const threshold = 180
-  const distanceToOlderEdge = el.scrollHeight - el.clientHeight - el.scrollTop
-  return distanceToOlderEdge <= threshold
+  return el.scrollTop <= threshold
 }
 
 function pinToLatestNow() {
   const el = messagesContainer.value
   if (!el) return
-  el.scrollTop = 0
+  el.scrollTop = el.scrollHeight
 }
 
 async function pinToLatest() {
@@ -432,10 +431,6 @@ const peerStatusText = computed(() => {
   return `был(а) в сети ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 })
 
-const renderedMessages = computed(() => {
-  return [...messageStore.messages].reverse()
-})
-
 watch(
   () => messageStore.messages.length,
   async () => {
@@ -620,9 +615,9 @@ async function handleSendMedia(file) {
         style="z-index: 50;"
         @scroll="handleMessagesScroll"
       >
-        <div class="flex flex-col-reverse min-h-full">
+        <div class="flex flex-col justify-end min-h-full">
           <Message
-            v-for="msg in renderedMessages"
+            v-for="msg in messageStore.messages"
             :key="msg.id || `${msg.time}-${msg.text}`"
             :message="msg"
             :dark-theme="themeStore.darkTheme"
