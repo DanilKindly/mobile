@@ -88,6 +88,10 @@ async function handleSelectChat(chat) {
 }
 
 function handleLogout() {
+  const userId = currentUser.value?.userId
+  if (userId) {
+    messengerApi.setPresence(userId, false).catch(() => {})
+  }
   messengerApi.logout()
   router.push('/')
 }

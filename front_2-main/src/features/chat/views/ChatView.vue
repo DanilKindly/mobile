@@ -36,23 +36,16 @@ const routeChatId = computed(() => String(route.params.chatId || ''))
 
 let openChatRequestId = 0
 let lastScrollTop = 0
-let presenceState = null
-let blurPresenceTimer = null
-let pageHideHandler = null
 let realtimeUnsubscribers = []
 let olderLoadInFlight = false
 let isOpeningChat = false
 let userStartedOlderHistoryScroll = false
 
-function clearBlurPresenceTimer() {
-  if (blurPresenceTimer) {
-    clearTimeout(blurPresenceTimer)
-    blurPresenceTimer = null
-  }
-}
-
 function handleLogout() {
-  updatePresence(false)
+  const userId = getCurrentUserId()
+  if (userId) {
+    messengerApi.setPresence(userId, false).catch(() => {})
+  }
   messengerApi.logout()
   router.push('/')
 }
@@ -221,43 +214,6 @@ async function syncPresenceSnapshot() {
   }, {})
 }
 
-async function updatePresence(nextOnline) {
-  const userId = getCurrentUserId()
-  if (!userId) return
-
-  if (presenceState === nextOnline) return
-
-  presenceState = nextOnline
-  try {
-    await messengerApi.setPresence(userId, nextOnline)
-  } catch (e) {
-    console.error('Failed to update presence:', e)
-  }
-}
-
-function handleVisibilityPresence() {
-  clearBlurPresenceTimer()
-  const shouldBeOnline = document.visibilityState === 'visible' && document.hasFocus()
-  updatePresence(shouldBeOnline)
-}
-
-function handleWindowFocus() {
-  clearBlurPresenceTimer()
-  if (document.visibilityState === 'visible') {
-    updatePresence(true)
-  }
-}
-
-function handleWindowBlur() {
-  clearBlurPresenceTimer()
-
-  blurPresenceTimer = setTimeout(() => {
-    if (document.visibilityState !== 'visible' || !document.hasFocus()) {
-      updatePresence(false)
-    }
-  }, 900)
-}
-
 async function ensureRealtime() {
   await messengerApi.syncChatSubscriptions(chatStore.chats.map((c) => c.id))
 
@@ -416,17 +372,17 @@ async function handleSelectChat(chat) {
 
 const peerStatusText = computed(() => {
   const peer = String(activePeerId.value || '').toLowerCase()
-  if (!peer) return 'не в сети'
+  if (!peer) return 'был(а) в сети недавно'
 
   if (onlineUsers.value[peer]) {
     return 'в сети'
   }
 
   const lastSeen = lastSeenByUser.value[peer]
-  if (!lastSeen) return 'не в сети'
+  if (!lastSeen) return 'был(а) в сети недавно'
 
   const dt = new Date(lastSeen)
-  if (Number.isNaN(dt.getTime())) return 'не в сети'
+  if (Number.isNaN(dt.getTime())) return 'был(а) в сети недавно'
 
   return `был(а) в сети ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 })
@@ -500,29 +456,10 @@ onMounted(async () => {
     setupNotificationPermissionBootstrap(),
   ])
 
-  await updatePresence(true)
-
-  document.addEventListener('visibilitychange', handleVisibilityPresence)
-  window.addEventListener('focus', handleWindowFocus)
-  window.addEventListener('blur', handleWindowBlur)
-  pageHideHandler = () => updatePresence(false)
-  window.addEventListener('pagehide', pageHideHandler)
-
   await openingChatPromise
 })
 
 onBeforeUnmount(() => {
-  clearBlurPresenceTimer()
-  updatePresence(false)
-
-  document.removeEventListener('visibilitychange', handleVisibilityPresence)
-  window.removeEventListener('focus', handleWindowFocus)
-  window.removeEventListener('blur', handleWindowBlur)
-  if (pageHideHandler) {
-    window.removeEventListener('pagehide', pageHideHandler)
-    pageHideHandler = null
-  }
-
   realtimeUnsubscribers.forEach((unsubscribe) => unsubscribe())
   realtimeUnsubscribers = []
 })
