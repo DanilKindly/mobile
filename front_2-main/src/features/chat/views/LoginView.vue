@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
@@ -22,24 +22,24 @@ const registerForm = ref({
   username: '',
 })
 
-const title = computed(() => (activeMode.value === 'login' ? 'Р’С…РѕРґ' : 'Р РµРіРёСЃС‚СЂР°С†РёСЏ'))
+const title = computed(() => (activeMode.value === 'login' ? 'Вход' : 'Регистрация'))
 
 function validateLoginInput(login) {
-  if (!login?.trim()) return 'Р’РІРµРґРёС‚Рµ login.'
-  if (login.trim().length < 3) return 'Login РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РјРёРЅРёРјСѓРј 3 СЃРёРјРІРѕР»Р°.'
-  if (!/^[a-zA-Z0-9_-]+$/.test(login.trim())) return 'Login: С‚РѕР»СЊРєРѕ Р±СѓРєРІС‹, С†РёС„СЂС‹, "_" Рё "-".'
+  if (!login?.trim()) return 'Введите ваш логин.'
+  if (login.trim().length < 3) return 'Логин должен быть не короче 3 символов.'
+  if (!/^[a-zA-Z0-9_-]+$/.test(login.trim())) return 'Логин может содержать только буквы, цифры, "_" и "-".'
   return ''
 }
 
 function validatePasswordInput(password) {
-  if (!password?.trim()) return 'Р’РІРµРґРёС‚Рµ password.'
-  if (password.trim().length < 6) return 'Password РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РјРёРЅРёРјСѓРј 6 СЃРёРјРІРѕР»РѕРІ.'
+  if (!password?.trim()) return 'Введите ваш пароль.'
+  if (password.trim().length < 6) return 'Пароль должен быть не короче 6 символов.'
   return ''
 }
 
 function validateUsernameInput(username) {
-  if (!username?.trim()) return 'Р’РІРµРґРёС‚Рµ username.'
-  if (username.trim().length < 2) return 'Username РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РјРёРЅРёРјСѓРј 2 СЃРёРјРІРѕР»Р°.'
+  if (!username?.trim()) return 'Введите ваше имя.'
+  if (username.trim().length < 2) return 'Имя должно быть не короче 2 символов.'
   return ''
 }
 
@@ -66,7 +66,7 @@ async function submitLogin() {
     })
     router.push('/chats')
   } catch (error) {
-    errorText.value = error?.response?.data?.error || 'РќРµ СѓРґР°Р»РѕСЃСЊ РІРѕР№С‚Рё. РџСЂРѕРІРµСЂСЊС‚Рµ login Рё password.'
+    errorText.value = error?.response?.data?.error || 'Не удалось войти. Проверьте логин и пароль.'
   } finally {
     isLoading.value = false
   }
@@ -102,7 +102,7 @@ async function submitRegister() {
     })
     router.push('/chats')
   } catch (error) {
-    errorText.value = error?.response?.data?.error || 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊСЃСЏ.'
+    errorText.value = error?.response?.data?.error || 'Не удалось зарегистрироваться.'
   } finally {
     isLoading.value = false
   }
@@ -130,7 +130,7 @@ async function submitRegister() {
             : (themeStore.darkTheme ? 'bg-[#2a2a2a] text-gray-300' : 'bg-gray-200 text-gray-600')"
           @click="activeMode = 'login'; errorText = ''"
         >
-          Р’РѕР№С‚Рё
+          Войти
         </button>
         <button
           class="flex-1 py-2 rounded-xl transition-colors"
@@ -139,7 +139,7 @@ async function submitRegister() {
             : (themeStore.darkTheme ? 'bg-[#2a2a2a] text-gray-300' : 'bg-gray-200 text-gray-600')"
           @click="activeMode = 'register'; errorText = ''"
         >
-          Р РµРіРёСЃС‚СЂР°С†РёСЏ
+          Регистрация
         </button>
       </div>
 
@@ -147,14 +147,14 @@ async function submitRegister() {
         <input
           v-model="loginForm.login"
           type="text"
-          placeholder="login"
+          placeholder="Ваш логин"
           class="w-full px-4 py-3 rounded-xl outline-none"
           :class="themeStore.darkTheme ? 'bg-[#2a2a2a] text-white placeholder-gray-500' : 'bg-gray-100 text-gray-800 placeholder-gray-400'"
         >
         <input
           v-model="loginForm.password"
           type="password"
-          placeholder="password"
+          placeholder="Ваш пароль"
           class="w-full px-4 py-3 rounded-xl outline-none"
           :class="themeStore.darkTheme ? 'bg-[#2a2a2a] text-white placeholder-gray-500' : 'bg-gray-100 text-gray-800 placeholder-gray-400'"
         >
@@ -163,7 +163,7 @@ async function submitRegister() {
           :disabled="isLoading"
           type="submit"
         >
-          {{ isLoading ? 'Р’С…РѕРґРёРј...' : 'Р’РѕР№С‚Рё' }}
+          {{ isLoading ? 'Входим...' : 'Войти' }}
         </button>
       </form>
 
@@ -171,21 +171,21 @@ async function submitRegister() {
         <input
           v-model="registerForm.login"
           type="text"
-          placeholder="login"
+          placeholder="Ваш логин"
           class="w-full px-4 py-3 rounded-xl outline-none"
           :class="themeStore.darkTheme ? 'bg-[#2a2a2a] text-white placeholder-gray-500' : 'bg-gray-100 text-gray-800 placeholder-gray-400'"
         >
         <input
           v-model="registerForm.username"
           type="text"
-          placeholder="username"
+          placeholder="Ваше имя"
           class="w-full px-4 py-3 rounded-xl outline-none"
           :class="themeStore.darkTheme ? 'bg-[#2a2a2a] text-white placeholder-gray-500' : 'bg-gray-100 text-gray-800 placeholder-gray-400'"
         >
         <input
           v-model="registerForm.password"
           type="password"
-          placeholder="password"
+          placeholder="Ваш пароль"
           class="w-full px-4 py-3 rounded-xl outline-none"
           :class="themeStore.darkTheme ? 'bg-[#2a2a2a] text-white placeholder-gray-500' : 'bg-gray-100 text-gray-800 placeholder-gray-400'"
         >
@@ -194,7 +194,7 @@ async function submitRegister() {
           :disabled="isLoading"
           type="submit"
         >
-          {{ isLoading ? 'РЎРѕР·РґР°РµРј Р°РєРєР°СѓРЅС‚...' : 'Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊСЃСЏ' }}
+          {{ isLoading ? 'Создаем аккаунт...' : 'Зарегистрироваться' }}
         </button>
       </form>
 
@@ -204,4 +204,3 @@ async function submitRegister() {
     </div>
   </div>
 </template>
-
