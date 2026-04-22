@@ -1,22 +1,45 @@
-const PERMISSION_REQUESTED_KEY = 'km_notifications_requested'
-
 function canUseNotifications() {
   return typeof window !== 'undefined' && 'Notification' in window
 }
 
-export async function requestNotificationsPermissionOnce() {
+let requestInFlight = null
+let requestedInCurrentRuntime = false
+
+export async function getNotificationPermissionState() {
   if (!canUseNotifications()) return 'unsupported'
 
-  if (Notification.permission === 'granted' || Notification.permission === 'denied') {
+  try {
+    if (navigator?.permissions?.query) {
+      const status = await navigator.permissions.query({ name: 'notifications' })
+      return status.state || Notification.permission
+    }
+  } catch {
+    // Permissions API is optional; fallback below.
+  }
+
+  return Notification.permission
+}
+
+export async function ensureNotificationPermissionForIncoming() {
+  if (!canUseNotifications()) return 'unsupported'
+
+  const currentState = await getNotificationPermissionState()
+  if (currentState === 'granted' || currentState === 'denied') {
+    return currentState
+  }
+
+  if (requestedInCurrentRuntime) {
     return Notification.permission
   }
 
-  if (localStorage.getItem(PERMISSION_REQUESTED_KEY) === '1') {
-    return Notification.permission
+  if (!requestInFlight) {
+    requestedInCurrentRuntime = true
+    requestInFlight = Notification.requestPermission().finally(() => {
+      requestInFlight = null
+    })
   }
 
-  localStorage.setItem(PERMISSION_REQUESTED_KEY, '1')
-  return Notification.requestPermission()
+  return requestInFlight
 }
 
 export function showNewMessageNotification({ title, body, icon = '/icon-192.png', data = {} }) {

@@ -29,6 +29,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       sessionStorage.removeItem(CURRENT_USER_KEY)
+      localStorage.removeItem(CURRENT_USER_KEY)
       localStorage.removeItem(TOKEN_KEY)
       if (window.location.pathname !== '/') {
         window.location.href = '/'
@@ -68,6 +69,12 @@ function getSignalRConnection() {
   return signalRConnection
 }
 
+function persistCurrentUser(currentUser) {
+  const serialized = JSON.stringify(currentUser)
+  sessionStorage.setItem(CURRENT_USER_KEY, serialized)
+  localStorage.setItem(CURRENT_USER_KEY, serialized)
+}
+
 export const messengerApi = {
   async getUsers() {
     const response = await api.get('/api/users')
@@ -91,7 +98,7 @@ export const messengerApi = {
     const currentUser = normalizeUser(data)
     currentUser.token = data.token ?? data.Token
 
-    sessionStorage.setItem(CURRENT_USER_KEY, JSON.stringify(currentUser))
+    persistCurrentUser(currentUser)
     if (currentUser.token) {
       localStorage.setItem(TOKEN_KEY, currentUser.token)
     }
@@ -108,7 +115,7 @@ export const messengerApi = {
     const currentUser = normalizeUser(data)
     currentUser.token = data.token ?? data.Token
 
-    sessionStorage.setItem(CURRENT_USER_KEY, JSON.stringify(currentUser))
+    persistCurrentUser(currentUser)
     if (currentUser.token) {
       localStorage.setItem(TOKEN_KEY, currentUser.token)
     }
@@ -117,18 +124,23 @@ export const messengerApi = {
   },
 
   getCurrentUser() {
-    const cached = sessionStorage.getItem(CURRENT_USER_KEY)
+    const cached = localStorage.getItem(CURRENT_USER_KEY) || sessionStorage.getItem(CURRENT_USER_KEY)
     if (!cached) return null
     try {
-      return JSON.parse(cached)
+      const parsed = JSON.parse(cached)
+      // Keep both storages synchronized for mobile/PWA restarts.
+      persistCurrentUser(parsed)
+      return parsed
     } catch {
       sessionStorage.removeItem(CURRENT_USER_KEY)
+      localStorage.removeItem(CURRENT_USER_KEY)
       return null
     }
   },
 
   logout() {
     sessionStorage.removeItem(CURRENT_USER_KEY)
+    localStorage.removeItem(CURRENT_USER_KEY)
     localStorage.removeItem(TOKEN_KEY)
   },
 

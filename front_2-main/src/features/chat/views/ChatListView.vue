@@ -6,7 +6,7 @@ import UserSearchDialog from '../components/UserSearchDialog.vue'
 import { useChatStore } from '@/stores/chat'
 import { useThemeStore } from '@/stores/theme'
 import messengerApi from '@/api/messenger'
-import { requestNotificationsPermissionOnce, showNewMessageNotification } from '@/shared/services/notificationService'
+import { ensureNotificationPermissionForIncoming, showNewMessageNotification } from '@/shared/services/notificationService'
 
 const router = useRouter()
 const chatStore = useChatStore()
@@ -23,7 +23,7 @@ function getMessagePreview(message) {
   return (message.text ?? message.Text ?? '').trim()
 }
 
-const onMessageReceived = (message) => {
+const onMessageReceived = async (message) => {
   const chatId = message.chatId ?? message.ChatId
   const currentUserId = currentUser.value?.userId
   if (!chatId || !currentUserId) return
@@ -38,7 +38,10 @@ const onMessageReceived = (message) => {
   const body = getMessagePreview(message) || 'Новое сообщение в чате'
 
   if (document.hidden) {
-    showNewMessageNotification({ title, body, data: { chatId } })
+    const permission = await ensureNotificationPermissionForIncoming()
+    if (permission === 'granted') {
+      showNewMessageNotification({ title, body, data: { chatId } })
+    }
   }
 }
 
@@ -79,7 +82,6 @@ async function selectLoginAndCreateChat(login) {
 onMounted(async () => {
   await chatStore.loadChats()
   await ensureRealtime()
-  await requestNotificationsPermissionOnce()
 })
 
 onBeforeUnmount(() => {

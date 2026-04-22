@@ -10,7 +10,7 @@ import { useChatStore } from '@/stores/chat'
 import { useMessageStore } from '@/stores/message'
 import { useThemeStore } from '@/stores/theme'
 import messengerApi from '@/api/messenger'
-import { requestNotificationsPermissionOnce, showNewMessageNotification } from '@/shared/services/notificationService'
+import { ensureNotificationPermissionForIncoming, showNewMessageNotification } from '@/shared/services/notificationService'
 
 const route = useRoute()
 const router = useRouter()
@@ -70,6 +70,13 @@ watch(
   { flush: 'post' },
 )
 
+async function scrollToBottom() {
+  await nextTick()
+  if (messagesContainer.value) {
+    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+  }
+}
+
 const routeChatId = computed(() => route.params.chatId)
 
 const onMessageReceived = async (message) => {
@@ -96,11 +103,14 @@ const onMessageReceived = async (message) => {
 
   if (!isMine && document.hidden) {
     const sourceChat = chatStore.getChatById(incomingChatId)
-    showNewMessageNotification({
-      title: sourceChat?.name || 'Новое сообщение',
-      body: getMessagePreview(message) || 'Новое сообщение в чате',
-      data: { chatId: incomingChatId },
-    })
+    const permission = await ensureNotificationPermissionForIncoming()
+    if (permission === 'granted') {
+      showNewMessageNotification({
+        title: sourceChat?.name || 'Новое сообщение',
+        body: getMessagePreview(message) || 'Новое сообщение в чате',
+        data: { chatId: incomingChatId },
+      })
+    }
   }
 }
 
@@ -172,6 +182,7 @@ async function openChat(targetChatId) {
     }
 
     await messengerApi.markMessagesAsRead(targetChatId, currentUserId)
+    await scrollToBottom()
   } catch (e) {
     console.error('Failed to open chat:', e)
     messageStore.clearMessages()
@@ -190,7 +201,6 @@ onMounted(async () => {
   await Promise.all([
     chatStore.loadChats(),
     ensureRealtime(),
-    requestNotificationsPermissionOnce(),
   ])
 
   if (routeChatId.value && isValidGuid(routeChatId.value)) {
