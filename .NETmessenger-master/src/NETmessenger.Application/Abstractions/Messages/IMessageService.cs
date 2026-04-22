@@ -25,4 +25,5 @@ public interface IMessageService
         string contentType,
         long length,
         CancellationToken cancellationToken);
+    Task<MessageChangesDto> GetChangesByUserAsync(Guid userId, long cursor, int limit, CancellationToken cancellationToken);
 }

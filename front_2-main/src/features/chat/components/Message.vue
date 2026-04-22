@@ -131,8 +131,21 @@ function onMediaLoaded() {
       </div>
 
       <div class="flex items-center justify-end gap-[8px] mt-[4px]">
+        <span
+          v-if="!isBot && message.deliveryStatus === 0"
+          class="text-[11px]"
+          :class="darkTheme ? 'text-[#8fb3d9]' : 'text-[#5a88bf]'"
+        >
+          Отправка...
+        </span>
+        <span
+          v-if="!isBot && message.deliveryStatus === 2"
+          class="text-[11px] text-red-400"
+        >
+          Не отправлено
+        </span>
         <span :class="['text-[11px]', darkTheme ? 'text-[#6D7F8F]' : 'text-[#666]']">{{ message.time }}</span>
-        <div v-if="!isBot" class="flex items-center relative w-[18px] h-[12px]">
+        <div v-if="!isBot && message.deliveryStatus !== 2" class="flex items-center relative w-[18px] h-[12px]">
           <img src="/src/assets/icons/readFlagDark.svg" class="absolute w-[12px] h-[12px]" v-if="darkTheme" alt="read">
           <img src="/src/assets/icons/readFlag.svg" class="absolute w-[12px] h-[12px]" v-else alt="read">
           <img src="/src/assets/icons/readFlagDark.svg" class="absolute w-[12px] h-[12px] left-[5px]" v-if="darkTheme && isRead" alt="read">

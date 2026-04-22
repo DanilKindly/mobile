@@ -34,7 +34,6 @@ const stickToBottom = ref(true)
 
 const onlineUsers = ref({})
 const lastSeenByUser = ref({})
-const connection = messengerApi.getConnection()
 const routeChatId = computed(() => String(route.params.chatId || ''))
 
 let openChatRequestId = 0
@@ -44,6 +43,7 @@ let presenceState = null
 let blurPresenceTimer = null
 let pageHideHandler = null
 let autoScrollUntil = 0
+let realtimeUnsubscribers = []
 
 function clearScrollTimers() {
   scrollTimers.forEach((id) => clearTimeout(id))
@@ -239,30 +239,35 @@ function handleWindowBlur() {
 async function ensureRealtime() {
   await messengerApi.syncChatSubscriptions(chatStore.chats.map((c) => c.id))
 
-  connection.off('MessageReceived', onMessageReceived)
-  connection.off('MessagesRead', onMessagesRead)
-  connection.off('PresenceChanged', onPresenceChanged)
+  realtimeUnsubscribers.forEach((unsubscribe) => unsubscribe())
+  realtimeUnsubscribers = []
 
-  connection.on('MessageReceived', onMessageReceived)
-  connection.on('MessagesRead', onMessagesRead)
-  connection.on('PresenceChanged', onPresenceChanged)
+  realtimeUnsubscribers.push(messengerApi.subscribeRealtime('MessageCreated', onMessageCreated))
+  realtimeUnsubscribers.push(messengerApi.subscribeRealtime('MessageUpdatedStatus', onMessageUpdatedStatus))
+  realtimeUnsubscribers.push(messengerApi.subscribeRealtime('ChatPreviewChanged', onChatPreviewChanged))
+  realtimeUnsubscribers.push(messengerApi.subscribeRealtime('PresenceChanged', onPresenceChanged))
 }
 
-const onMessageReceived = async (message) => {
+const onMessageCreated = async (event) => {
+  const message = event?.message || null
+  if (!message) return
+
   const incomingChatId = message.chatId ?? message.ChatId
   if (!incomingChatId) return
 
   const currentUserId = getCurrentUserId()
   if (!currentUserId) return
 
-  chatStore.updatePreviewFromMessage(incomingChatId, message, currentUserId)
+  if (event?.chatPreview) {
+    chatStore.applyChatPreview(event.chatPreview, currentUserId)
+  }
 
-  const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
-  const isMine = senderUserId === String(currentUserId)
+  chatStore.updatePreviewFromMessage(incomingChatId, message, currentUserId)
+  messageStore.addBackendMessageToState(message, currentUserId)
 
   if (String(chatId.value).toLowerCase() === String(incomingChatId).toLowerCase()) {
-    messageStore.addBackendMessageToState(message, currentUserId)
-
+    const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
+    const isMine = senderUserId === String(currentUserId)
     if (!isMine) {
       await messengerApi.markMessagesAsRead(incomingChatId, currentUserId)
     }
@@ -273,6 +278,9 @@ const onMessageReceived = async (message) => {
 
     return
   }
+
+  const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
+  const isMine = senderUserId === String(currentUserId)
 
   if (!isMine && document.hidden) {
     const permission = await getNotificationPermissionState()
@@ -295,9 +303,18 @@ const onMessageReceived = async (message) => {
   }
 }
 
-const onMessagesRead = (incomingChatId, messageIds, readerUserId) => {
-  if (String(incomingChatId).toLowerCase() !== String(chatId.value).toLowerCase()) return
-  messageStore.markMessagesAsReadByIds(messageIds, readerUserId, getCurrentUserId())
+const onMessageUpdatedStatus = (event) => {
+  const incomingChatId = event?.chatId
+  const messageIds = event?.messageIds
+  const readerUserId = event?.readerUserId
+  if (!incomingChatId || !Array.isArray(messageIds) || messageIds.length === 0) return
+
+  messageStore.markMessagesAsReadByIds(messageIds, readerUserId, getCurrentUserId(), incomingChatId)
+}
+
+const onChatPreviewChanged = (event) => {
+  if (!event?.chatPreview) return
+  chatStore.applyChatPreview(event.chatPreview, getCurrentUserId())
 }
 
 async function handleMessageMediaLoaded() {
@@ -306,6 +323,13 @@ async function handleMessageMediaLoaded() {
 }
 
 const onPresenceChanged = (userId, isOnline, lastSeenAt) => {
+  if (typeof userId === 'object' && userId !== null) {
+    const payload = userId
+    userId = payload.userId
+    isOnline = payload.isOnline
+    lastSeenAt = payload.lastSeenAt
+  }
+
   const normalized = String(userId || '').toLowerCase()
   if (!normalized) return
 
@@ -333,6 +357,7 @@ async function openChat(targetChatId) {
   isChatLoading.value = true
   isMessageViewportReady.value = false
   chatId.value = targetChatId
+  messageStore.setActiveChat(targetChatId)
   setImmediateChatName(targetChatId)
 
   try {
@@ -451,6 +476,7 @@ onMounted(async () => {
 
   await ensureRealtime()
   await Promise.all([
+    messengerApi.bootstrapRealtimeSync(),
     syncPresenceSnapshot(),
     setupNotificationPermissionBootstrap(),
   ])
@@ -479,18 +505,40 @@ onBeforeUnmount(() => {
     pageHideHandler = null
   }
 
-  connection.off('MessageReceived', onMessageReceived)
-  connection.off('MessagesRead', onMessagesRead)
-  connection.off('PresenceChanged', onPresenceChanged)
+  realtimeUnsubscribers.forEach((unsubscribe) => unsubscribe())
+  realtimeUnsubscribers = []
 })
 
 async function handleSendText(text) {
   if (!chatId.value || !currentUser.value) return
 
   const senderUserId = getCurrentUserId()
+  const clientMessageId = crypto.randomUUID()
+  const sentAtClient = new Date().toISOString()
+
+  messageStore.addOptimisticTextMessage(
+    chatId.value,
+    { clientMessageId, senderUserId, text, sentAtClient },
+    senderUserId,
+  )
+  chatStore.updatePreviewFromMessage(
+    chatId.value,
+    { senderUserId, text, type: 0, sentAt: sentAtClient },
+    senderUserId,
+  )
+
   try {
-    await messengerApi.sendMessageSignalR(chatId.value, text, senderUserId)
+    const result = await messengerApi.sendMessageReliable(chatId.value, text, senderUserId, {
+      clientMessageId,
+      sentAtClient,
+      ackTimeoutMs: 2800,
+      maxRetries: 2,
+    })
+
+    messageStore.markPendingMessageAsSent(chatId.value, clientMessageId, result.message, senderUserId)
+    chatStore.updatePreviewFromMessage(chatId.value, result.message, senderUserId)
   } catch (e) {
+    messageStore.markPendingMessageAsFailed(chatId.value, clientMessageId)
     console.error('Failed to send text message:', e)
     throw e
   }

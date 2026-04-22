@@ -16,6 +16,16 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Property(m => m.Type)
             .IsRequired();
 
+        builder.Property(m => m.ClientMessageId)
+            .HasMaxLength(128)
+            .IsRequired(false);
+
+        builder.Property(m => m.SentAtClient)
+            .IsRequired(false);
+
+        builder.Property(m => m.Version)
+            .IsRequired();
+
         builder.Property(m => m.AudioUrl)
             .IsRequired(false);
 
@@ -59,5 +69,9 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(m => new { m.ChatId, m.SentAt });
+        builder.HasIndex(m => new { m.ChatId, m.SenderId, m.ClientMessageId })
+            .IsUnique()
+            .HasFilter("\"ClientMessageId\" IS NOT NULL");
+        builder.HasIndex(m => m.Version);
     }
 }

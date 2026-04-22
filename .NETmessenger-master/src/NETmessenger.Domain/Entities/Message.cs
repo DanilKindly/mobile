@@ -3,6 +3,9 @@ namespace NETmessenger.Domain.Entities;
 public class Message
 {
     public Guid Id { get; set; }
+    public string? ClientMessageId { get; set; }
+    public DateTime? SentAtClient { get; set; }
+    public long Version { get; set; }
     public MessageType Type { get; set; } = MessageType.Text;
     public string? Text { get; set; }
     public string? AudioUrl { get; set; }

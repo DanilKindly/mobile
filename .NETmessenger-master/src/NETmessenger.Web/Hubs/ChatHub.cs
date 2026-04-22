@@ -1,11 +1,12 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.SignalR;
+using NETmessenger.Application.Abstractions.Chats;
 using NETmessenger.Application.Abstractions.Messages;
 using NETmessenger.Contracts.Messages;
 
 namespace NETmessenger.Web.Hubs;
 
-public class ChatHub(IMessageService messageService) : Hub
+public class ChatHub(IMessageService messageService, IChatService chatService) : Hub
 {
     private static readonly ConcurrentDictionary<string, Guid> ConnectionToUser = new();
     private static readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>> UserConnections = new();
@@ -20,10 +21,15 @@ public class ChatHub(IMessageService messageService) : Hub
         return Groups.RemoveFromGroupAsync(Context.ConnectionId, GetChatGroup(chatId));
     }
 
-    public async Task SendMessage(Guid chatId, SendMessageDto dto)
+    public async Task<RealtimeEventDto> SendMessage(Guid chatId, SendMessageDto dto)
     {
         var message = await messageService.SendAsync(chatId, dto, CancellationToken.None);
+        var eventDto = await BuildMessageCreatedEventAsync(chatId, message);
+
+        await Clients.Group(GetChatGroup(chatId)).SendAsync("RealtimeEvent", eventDto);
         await Clients.Group(GetChatGroup(chatId)).SendAsync("MessageReceived", message);
+
+        return eventDto;
     }
 
     public async Task MarkMessagesAsRead(Guid chatId, Guid readerUserId)
@@ -34,8 +40,24 @@ public class ChatHub(IMessageService messageService) : Hub
             return;
         }
 
-        await Clients.Group(GetChatGroup(chatId))
-            .SendAsync("MessagesRead", chatId, readMessageIds, readerUserId);
+        var nowCursor = DateTime.UtcNow.Ticks;
+        var eventDto = new RealtimeEventDto(
+            "MessageUpdatedStatus",
+            nowCursor,
+            nowCursor,
+            null,
+            chatId,
+            readMessageIds,
+            readerUserId,
+            null);
+
+        await Clients.Group(GetChatGroup(chatId)).SendAsync("RealtimeEvent", eventDto);
+        await Clients.Group(GetChatGroup(chatId)).SendAsync("MessagesRead", chatId, readMessageIds, readerUserId);
+    }
+
+    public async Task<MessageChangesDto> GetChanges(Guid userId, long cursor, int limit = 250)
+    {
+        return await messageService.GetChangesByUserAsync(userId, cursor, limit, CancellationToken.None);
     }
 
     public async Task SetPresence(Guid userId, bool isOnline)
@@ -87,6 +109,21 @@ public class ChatHub(IMessageService messageService) : Hub
     public static string GetChatGroup(Guid chatId)
     {
         return $"chat:{chatId:D}";
+    }
+
+    private async Task<RealtimeEventDto> BuildMessageCreatedEventAsync(Guid chatId, GetMessageDto message)
+    {
+        var chatPreview = await chatService.GetByIdAsync(chatId, CancellationToken.None);
+        var cursor = Math.Max(message.Version, DateTime.UtcNow.Ticks);
+        return new RealtimeEventDto(
+            "MessageCreated",
+            cursor,
+            message.Version,
+            message,
+            chatId,
+            null,
+            null,
+            chatPreview);
     }
 
     private static bool RegisterConnection(Guid userId, string connectionId)

@@ -31,6 +31,17 @@ public class MessagesController(IMessageService messageService, IHubContext<Chat
         try
         {
             var message = await messageService.SendAsync(chatId, dto, cancellationToken);
+            var cursor = Math.Max(message.Version, DateTime.UtcNow.Ticks);
+            var realtimeEvent = new RealtimeEventDto(
+                "MessageCreated",
+                cursor,
+                message.Version,
+                message,
+                chatId,
+                null,
+                null,
+                null);
+            await hubContext.Clients.Group(ChatHub.GetChatGroup(chatId)).SendAsync("RealtimeEvent", realtimeEvent, cancellationToken);
             await hubContext.Clients.Group(ChatHub.GetChatGroup(chatId)).SendAsync("MessageReceived", message, cancellationToken);
             return Ok(message);
         }
@@ -75,6 +86,17 @@ public class MessagesController(IMessageService messageService, IHubContext<Chat
                 request.DurationSeconds,
                 cancellationToken);
 
+            var cursor = Math.Max(message.Version, DateTime.UtcNow.Ticks);
+            var realtimeEvent = new RealtimeEventDto(
+                "MessageCreated",
+                cursor,
+                message.Version,
+                message,
+                chatId,
+                null,
+                null,
+                null);
+            await hubContext.Clients.Group(ChatHub.GetChatGroup(chatId)).SendAsync("RealtimeEvent", realtimeEvent, cancellationToken);
             await hubContext.Clients.Group(ChatHub.GetChatGroup(chatId)).SendAsync("MessageReceived", message, cancellationToken);
             return Ok(message);
         }
@@ -112,6 +134,17 @@ public class MessagesController(IMessageService messageService, IHubContext<Chat
                 request.File.Length,
                 cancellationToken);
 
+            var cursor = Math.Max(message.Version, DateTime.UtcNow.Ticks);
+            var realtimeEvent = new RealtimeEventDto(
+                "MessageCreated",
+                cursor,
+                message.Version,
+                message,
+                chatId,
+                null,
+                null,
+                null);
+            await hubContext.Clients.Group(ChatHub.GetChatGroup(chatId)).SendAsync("RealtimeEvent", realtimeEvent, cancellationToken);
             await hubContext.Clients.Group(ChatHub.GetChatGroup(chatId)).SendAsync("MessageReceived", message, cancellationToken);
             return Ok(message);
         }
@@ -122,6 +155,24 @@ public class MessagesController(IMessageService messageService, IHubContext<Chat
         catch (DomainValidationException ex)
         {
             return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpGet("/api/chats/changes/by-user/{userId:guid}")]
+    public async Task<ActionResult<MessageChangesDto>> GetChangesByUser(
+        Guid userId,
+        [FromQuery] long cursor = 0,
+        [FromQuery] int limit = 250,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var changes = await messageService.GetChangesByUserAsync(userId, cursor, limit, cancellationToken);
+            return Ok(changes);
+        }
+        catch (ResourceNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
         }
     }
 }

@@ -18,7 +18,7 @@ const themeStore = useThemeStore()
 
 const currentUser = computed(() => chatStore.currentUser)
 const showUserSearch = ref(false)
-const connection = messengerApi.getConnection()
+let realtimeUnsubscribers = []
 
 function getMessagePreview(message) {
   const type = Number(message.type ?? message.Type ?? 0)
@@ -27,10 +27,16 @@ function getMessagePreview(message) {
   return (message.text ?? message.Text ?? '').trim()
 }
 
-const onMessageReceived = async (message) => {
+const onMessageCreated = async (event) => {
+  const message = event?.message || null
+  if (!message) return
   const chatId = message.chatId ?? message.ChatId
   const currentUserId = currentUser.value?.userId
   if (!chatId || !currentUserId) return
+
+  if (event?.chatPreview) {
+    chatStore.applyChatPreview(event.chatPreview, currentUserId)
+  }
 
   chatStore.updatePreviewFromMessage(chatId, message, currentUserId)
 
@@ -58,12 +64,20 @@ const onMessageReceived = async (message) => {
   }
 }
 
+const onChatPreviewChanged = (event) => {
+  if (!event?.chatPreview) return
+  chatStore.applyChatPreview(event.chatPreview, currentUser.value?.userId)
+}
+
 async function ensureRealtime() {
   const ids = chatStore.chats.map((c) => c.id)
   await messengerApi.syncChatSubscriptions(ids)
+  await messengerApi.bootstrapRealtimeSync()
 
-  connection.off('MessageReceived', onMessageReceived)
-  connection.on('MessageReceived', onMessageReceived)
+  realtimeUnsubscribers.forEach((unsubscribe) => unsubscribe())
+  realtimeUnsubscribers = []
+  realtimeUnsubscribers.push(messengerApi.subscribeRealtime('MessageCreated', onMessageCreated))
+  realtimeUnsubscribers.push(messengerApi.subscribeRealtime('ChatPreviewChanged', onChatPreviewChanged))
 }
 
 async function handleSelectChat(chat) {
@@ -128,7 +142,8 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  connection.off('MessageReceived', onMessageReceived)
+  realtimeUnsubscribers.forEach((unsubscribe) => unsubscribe())
+  realtimeUnsubscribers = []
 })
 </script>
 

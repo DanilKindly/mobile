@@ -68,6 +68,14 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
+  function sortChatsByLastMessage(items) {
+    return [...items].sort((a, b) => {
+      const aTs = a.lastMessageSentAt ? new Date(a.lastMessageSentAt).getTime() : 0
+      const bTs = b.lastMessageSentAt ? new Date(b.lastMessageSentAt).getTime() : 0
+      return bTs - aTs
+    })
+  }
+
   async function ensureUsers(forceRefresh = false) {
     const now = Date.now()
     const hasUsers = Object.keys(usersById.value).length > 0
@@ -166,11 +174,7 @@ export const useChatStore = defineStore('chat', () => {
     chat.lastMessageSenderUserId = senderUserId
     chat.lastMessageType = type
 
-    chats.value = [...chats.value].sort((a, b) => {
-      const aTs = a.lastMessageSentAt ? new Date(a.lastMessageSentAt).getTime() : 0
-      const bTs = b.lastMessageSentAt ? new Date(b.lastMessageSentAt).getTime() : 0
-      return bTs - aTs
-    })
+    chats.value = sortChatsByLastMessage(chats.value)
   }
 
   function updatePreviewFromMessage(chatId, messageDto, currentUserId) {
@@ -192,12 +196,34 @@ export const useChatStore = defineStore('chat', () => {
     return usersById.value[normalizeId(userId)] || null
   }
 
+  function applyChatPreview(chatDto, currentUserId = null) {
+    if (!chatDto) return
+
+    const userId = currentUserId || currentUser.value?.userId || messengerApi.getCurrentUser()?.userId
+    const mapped = mapChats([chatDto], Object.values(usersById.value), userId || '')[0]
+    if (!mapped) return
+
+    const existingIndex = chats.value.findIndex((c) => normalizeId(c.id) === normalizeId(mapped.id))
+    if (existingIndex >= 0) {
+      const merged = [...chats.value]
+      merged[existingIndex] = {
+        ...merged[existingIndex],
+        ...mapped,
+      }
+      chats.value = sortChatsByLastMessage(merged)
+      return
+    }
+
+    chats.value = sortChatsByLastMessage([...chats.value, mapped])
+  }
+
   return {
     chats,
     currentUser,
     loadChats,
     updateLastMessage,
     updatePreviewFromMessage,
+    applyChatPreview,
     getChatById,
     getUserById,
     ensureUsers,
