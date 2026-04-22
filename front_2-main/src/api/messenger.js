@@ -427,9 +427,26 @@ export const messengerApi = {
     return response.data
   },
 
-  async getMessages(chatId) {
-    const response = await api.get(`/api/chats/${chatId}/messages`)
-    return response.data
+  async getMessages(chatId, options = {}) {
+    const params = {
+      limit: options.limit ?? 40,
+    }
+
+    if (options.beforeVersion != null) {
+      params.beforeVersion = options.beforeVersion
+    }
+
+    const response = await api.get(`/api/chats/${chatId}/messages`, { params })
+    const page = response.data ?? {}
+    const messages = Array.isArray(page.messages ?? page.Messages)
+      ? (page.messages ?? page.Messages).map((m) => normalizeMessage(m))
+      : []
+
+    return {
+      messages,
+      hasMoreOlder: Boolean(page.hasMoreOlder ?? page.HasMoreOlder ?? false),
+      nextBeforeVersion: Number(page.nextBeforeVersion ?? page.NextBeforeVersion ?? 0) || null,
+    }
   },
 
   async getChangesByUser(userId, cursor = 0, limit = 250) {

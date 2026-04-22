@@ -33,6 +33,54 @@ public sealed class MessageService(AppDbContext dbContext, IVoiceStorage voiceSt
             .ToArrayAsync(cancellationToken);
     }
 
+    public async Task<GetMessagesPageDto> GetPageByChatIdAsync(
+        Guid chatId,
+        long? beforeVersion,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var chatExists = await dbContext.Chats.AsNoTracking().AnyAsync(c => c.Id == chatId, cancellationToken);
+        if (!chatExists)
+        {
+            throw new ResourceNotFoundException($"Chat '{chatId}' was not found.");
+        }
+
+        var normalizedLimit = Math.Clamp(limit, 1, 100);
+
+        var query = dbContext.Messages
+            .AsNoTracking()
+            .Where(m => m.ChatId == chatId);
+
+        if (beforeVersion.HasValue)
+        {
+            query = query.Where(m => m.Version < beforeVersion.Value);
+        }
+
+        var pageWindow = await query
+            .OrderByDescending(m => m.Version)
+            .ThenByDescending(m => m.Id)
+            .Take(normalizedLimit + 1)
+            .Select(MapProjection())
+            .ToListAsync(cancellationToken);
+
+        var hasMoreOlder = pageWindow.Count > normalizedLimit;
+        if (hasMoreOlder)
+        {
+            pageWindow = pageWindow.Take(normalizedLimit).ToList();
+        }
+
+        var ordered = pageWindow
+            .OrderBy(m => m.Version)
+            .ThenBy(m => m.MessageId)
+            .ToArray();
+
+        var nextBeforeVersion = ordered.Length > 0
+            ? ordered.Min(m => m.Version)
+            : beforeVersion;
+
+        return new GetMessagesPageDto(ordered, hasMoreOlder, nextBeforeVersion);
+    }
+
     public async Task<GetMessageDto> SendAsync(Guid chatId, SendMessageDto dto, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(dto.Text))

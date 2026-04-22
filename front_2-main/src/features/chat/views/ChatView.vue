@@ -40,6 +40,8 @@ let presenceState = null
 let blurPresenceTimer = null
 let pageHideHandler = null
 let realtimeUnsubscribers = []
+let olderLoadInFlight = false
+let isOpeningChat = false
 
 function clearBlurPresenceTimer() {
   if (blurPresenceTimer) {
@@ -97,6 +99,14 @@ function isNearBottom() {
   return el.scrollTop <= threshold
 }
 
+function isNearOlderEdge() {
+  const el = messagesContainer.value
+  if (!el) return false
+  const threshold = 180
+  const distanceToOlderEdge = el.scrollHeight - el.clientHeight - el.scrollTop
+  return distanceToOlderEdge <= threshold
+}
+
 function pinToLatestNow() {
   const el = messagesContainer.value
   if (!el) return
@@ -132,6 +142,35 @@ function handleMessagesScroll() {
   }
 
   stickToBottom.value = isNearBottom()
+  if (isNearOlderEdge()) {
+    loadOlderMessagesPreservingViewport()
+  }
+}
+
+async function loadOlderMessagesPreservingViewport() {
+  if (olderLoadInFlight || !chatId.value || !currentUser.value) return
+
+  const state = messageStore.getPageState(chatId.value)
+  if (!state.hasMoreOlder || state.isLoadingOlder) return
+
+  const el = messagesContainer.value
+  if (!el) return
+
+  olderLoadInFlight = true
+  const beforeHeight = el.scrollHeight
+
+  try {
+    const loaded = await messageStore.loadOlderMessagesByChatId(chatId.value, getCurrentUserId())
+    if (!loaded) return
+    await nextTick()
+    const afterHeight = el.scrollHeight
+    const delta = afterHeight - beforeHeight
+    if (delta > 0) {
+      el.scrollTop += delta
+    }
+  } finally {
+    olderLoadInFlight = false
+  }
 }
 
 function sanitizeIncomingChatName(nameValue) {
@@ -340,9 +379,10 @@ async function openChat(targetChatId) {
   messageStore.setActiveChat(targetChatId)
   setImmediateChatName(targetChatId)
   stickToBottom.value = true
+  isOpeningChat = true
 
   try {
-    const loadPromise = messageStore.loadMessagesByChatId(targetChatId, currentUserId)
+    const loadPromise = messageStore.loadLatestMessagesByChatId(targetChatId, currentUserId, 40)
 
     if (requestId !== openChatRequestId) return
 
@@ -359,6 +399,8 @@ async function openChat(targetChatId) {
     if (requestId === openChatRequestId) {
       messageStore.clearMessages()
     }
+  } finally {
+    isOpeningChat = false
   }
 }
 
@@ -393,7 +435,8 @@ const renderedMessages = computed(() => {
 watch(
   () => messageStore.messages.length,
   async () => {
-    if (stickToBottom.value) {
+    if (isOpeningChat) return
+    if (stickToBottom.value && !olderLoadInFlight) {
       await pinToLatest()
     }
   },

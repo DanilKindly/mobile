@@ -12,12 +12,16 @@ namespace NETmessenger.Web.Controllers.Messages;
 public class MessagesController(IMessageService messageService, IHubContext<ChatHub> hubContext) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyCollection<GetMessageDto>>> GetByChatId(Guid chatId, CancellationToken cancellationToken)
+    public async Task<ActionResult<GetMessagesPageDto>> GetByChatId(
+        Guid chatId,
+        [FromQuery] long? beforeVersion = null,
+        [FromQuery] int limit = 40,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            var messages = await messageService.GetByChatIdAsync(chatId, cancellationToken);
-            return Ok(messages);
+            var messagesPage = await messageService.GetPageByChatIdAsync(chatId, beforeVersion, limit, cancellationToken);
+            return Ok(messagesPage);
         }
         catch (ResourceNotFoundException)
         {

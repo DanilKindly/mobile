@@ -66,6 +66,7 @@ function ensureSorted(messages) {
 export const useMessageStore = defineStore('message', () => {
   const activeChatId = ref(null)
   const messagesByChatId = ref({})
+  const messagePageByChatId = ref({})
   const pendingByClientId = ref({})
 
   const messages = computed(() => {
@@ -79,6 +80,27 @@ export const useMessageStore = defineStore('message', () => {
 
   function getMessagesByChatId(chatId) {
     return messagesByChatId.value[normalizeId(chatId)] || []
+  }
+
+  function getPageState(chatId) {
+    return messagePageByChatId.value[normalizeId(chatId)] || {
+      hasMoreOlder: false,
+      nextBeforeVersion: null,
+      limit: 40,
+      isLoadingOlder: false,
+      isLoadingLatest: false,
+    }
+  }
+
+  function setPageState(chatId, patch) {
+    const chatKey = normalizeId(chatId)
+    messagePageByChatId.value = {
+      ...messagePageByChatId.value,
+      [chatKey]: {
+        ...getPageState(chatId),
+        ...patch,
+      },
+    }
   }
 
   function upsertMessage(chatId, mappedMessage) {
@@ -105,41 +127,87 @@ export const useMessageStore = defineStore('message', () => {
     }
   }
 
-  async function loadMessagesByChatId(chatId, currentUserId) {
+  function mergeMessages(base, incoming) {
+    const merged = [...base]
+    for (const message of incoming) {
+      const byMessageId = message.messageId
+        ? merged.findIndex((m) => normalizeId(m.messageId) === normalizeId(message.messageId))
+        : -1
+      const byClientId = message.clientMessageId
+        ? merged.findIndex((m) => m.clientMessageId && normalizeId(m.clientMessageId) === normalizeId(message.clientMessageId))
+        : -1
+      const targetIndex = byMessageId >= 0 ? byMessageId : byClientId
+
+      if (targetIndex >= 0) {
+        merged[targetIndex] = { ...merged[targetIndex], ...message }
+      } else {
+        merged.push(message)
+      }
+    }
+
+    return ensureSorted(merged)
+  }
+
+  async function loadLatestMessagesByChatId(chatId, currentUserId, limit = 40) {
     const chatKey = normalizeId(chatId)
-    const existing = messagesByChatId.value[chatKey] || []
+    setPageState(chatId, { isLoadingLatest: true, limit })
 
     try {
-      const backendMessages = await messengerApi.getMessages(chatId)
-      const incoming = backendMessages.map((m) => buildStoreMessage(m, currentUserId))
-
-      const merged = [...existing]
-      for (const message of incoming) {
-        const byMessageId = message.messageId
-          ? merged.findIndex((m) => normalizeId(m.messageId) === normalizeId(message.messageId))
-          : -1
-        const byClientId = message.clientMessageId
-          ? merged.findIndex((m) => m.clientMessageId && normalizeId(m.clientMessageId) === normalizeId(message.clientMessageId))
-          : -1
-        const targetIndex = byMessageId >= 0 ? byMessageId : byClientId
-
-        if (targetIndex >= 0) {
-          merged[targetIndex] = { ...merged[targetIndex], ...message }
-        } else {
-          merged.push(message)
-        }
-      }
+      const page = await messengerApi.getMessages(chatId, { limit })
+      const incoming = (page.messages || []).map((m) => buildStoreMessage(m, currentUserId))
 
       messagesByChatId.value = {
         ...messagesByChatId.value,
-        [chatKey]: ensureSorted(merged),
+        [chatKey]: ensureSorted(incoming),
       }
+
+      setPageState(chatId, {
+        isLoadingLatest: false,
+        hasMoreOlder: page.hasMoreOlder,
+        nextBeforeVersion: page.nextBeforeVersion,
+        limit,
+      })
     } catch (e) {
-      console.error('Failed to load messages from backend:', e)
+      console.error('Failed to load latest messages from backend:', e)
+      setPageState(chatId, { isLoadingLatest: false })
+      throw e
+    }
+  }
+
+  async function loadOlderMessagesByChatId(chatId, currentUserId) {
+    const state = getPageState(chatId)
+    if (state.isLoadingOlder || !state.hasMoreOlder || !state.nextBeforeVersion) {
+      return false
+    }
+
+    setPageState(chatId, { isLoadingOlder: true })
+    const chatKey = normalizeId(chatId)
+
+    try {
+      const page = await messengerApi.getMessages(chatId, {
+        limit: state.limit || 40,
+        beforeVersion: state.nextBeforeVersion,
+      })
+
+      const incoming = (page.messages || []).map((m) => buildStoreMessage(m, currentUserId))
+      const current = messagesByChatId.value[chatKey] || []
+      const merged = mergeMessages(current, incoming)
+
       messagesByChatId.value = {
         ...messagesByChatId.value,
-        [chatKey]: ensureSorted(existing),
+        [chatKey]: merged,
       }
+
+      setPageState(chatId, {
+        isLoadingOlder: false,
+        hasMoreOlder: page.hasMoreOlder,
+        nextBeforeVersion: page.nextBeforeVersion,
+      })
+      return incoming.length > 0
+    } catch (e) {
+      console.error('Failed to load older messages from backend:', e)
+      setPageState(chatId, { isLoadingOlder: false })
+      return false
     }
   }
 
@@ -253,16 +321,30 @@ export const useMessageStore = defineStore('message', () => {
       ...messagesByChatId.value,
       [chatKey]: [],
     }
+
+    messagePageByChatId.value = {
+      ...messagePageByChatId.value,
+      [chatKey]: {
+        hasMoreOlder: false,
+        nextBeforeVersion: null,
+        limit: 40,
+        isLoadingOlder: false,
+        isLoadingLatest: false,
+      },
+    }
   }
 
   return {
     messages,
     messagesByChatId,
+    messagePageByChatId,
     pendingByClientId,
     activeChatId,
     setActiveChat,
     getMessagesByChatId,
-    loadMessagesByChatId,
+    getPageState,
+    loadLatestMessagesByChatId,
+    loadOlderMessagesByChatId,
     addBackendMessageToState,
     addOptimisticTextMessage,
     markPendingMessageAsSent,
