@@ -9,12 +9,14 @@ using NETmessenger.Infrastructure.Persistence;
 using NETmessenger.Infrastructure.Services.Chats;
 using NETmessenger.Infrastructure.Services.Files;
 using NETmessenger.Infrastructure.Services.Messages;
+using NETmessenger.Infrastructure.Services.Push;
 using NETmessenger.Infrastructure.Services.Users;
 using NETmessenger.Infrastructure.Services;
 
 
 
 using NETmessenger.Application.Abstractions.Auth;
+using NETmessenger.Application.Abstractions.Push;
 using NETmessenger.Domain.Entities;
 using NETmessenger.Infrastructure.Services.Auth;
 
@@ -39,6 +41,7 @@ public static class DependencyInjection
         services.AddScoped<IMediaStorage, LocalMediaStorage>();
         services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IJwtService, JwtService>();
+        services.AddScoped<IPushNotificationService, PushNotificationService>();
 
         return services;
     }

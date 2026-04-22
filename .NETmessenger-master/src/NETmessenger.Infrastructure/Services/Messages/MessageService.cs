@@ -4,6 +4,7 @@ using System.Threading;
 using Microsoft.EntityFrameworkCore;
 using NETmessenger.Application.Abstractions.Files;
 using NETmessenger.Application.Abstractions.Messages;
+using NETmessenger.Application.Abstractions.Push;
 using NETmessenger.Application.Exceptions;
 using NETmessenger.Contracts.Chats;
 using NETmessenger.Contracts.Messages;
@@ -12,7 +13,11 @@ using NETmessenger.Infrastructure.Persistence;
 
 namespace NETmessenger.Infrastructure.Services.Messages;
 
-public sealed class MessageService(AppDbContext dbContext, IVoiceStorage voiceStorage, IMediaStorage mediaStorage) : IMessageService
+public sealed class MessageService(
+    AppDbContext dbContext,
+    IVoiceStorage voiceStorage,
+    IMediaStorage mediaStorage,
+    IPushNotificationService pushNotificationService) : IMessageService
 {
     private static long _versionSeed = DateTime.UtcNow.Ticks;
 
@@ -138,7 +143,9 @@ public sealed class MessageService(AppDbContext dbContext, IVoiceStorage voiceSt
         dbContext.Messages.Add(message);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return MapToDto(message);
+        var dtoResult = MapToDto(message);
+        await pushNotificationService.NotifyIncomingMessageAsync(dtoResult, cancellationToken);
+        return dtoResult;
     }
 
     public async Task<IReadOnlyCollection<Guid>> MarkMessagesAsReadAsync(
@@ -224,7 +231,9 @@ public sealed class MessageService(AppDbContext dbContext, IVoiceStorage voiceSt
         dbContext.Messages.Add(message);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return MapToDto(message);
+        var dtoResult = MapToDto(message);
+        await pushNotificationService.NotifyIncomingMessageAsync(dtoResult, cancellationToken);
+        return dtoResult;
     }
 
     public async Task<GetMessageDto> SendMediaAsync(
@@ -263,7 +272,9 @@ public sealed class MessageService(AppDbContext dbContext, IVoiceStorage voiceSt
         dbContext.Messages.Add(message);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return MapToDto(message);
+        var dtoResult = MapToDto(message);
+        await pushNotificationService.NotifyIncomingMessageAsync(dtoResult, cancellationToken);
+        return dtoResult;
     }
 
     public async Task<MessageChangesDto> GetChangesByUserAsync(Guid userId, long cursor, int limit, CancellationToken cancellationToken)

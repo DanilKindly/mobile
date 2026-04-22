@@ -317,6 +317,28 @@ export const messengerApi = {
     return (response.data ?? []).map(normalizeUser)
   },
 
+  async getPushVapidPublicKey() {
+    try {
+      const response = await api.get('/api/push/public-key')
+      return response.data ?? null
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        return null
+      }
+      throw error
+    }
+  },
+
+  async upsertPushSubscription(payload) {
+    await api.post('/api/push/subscriptions', payload)
+  },
+
+  async removePushSubscription(endpoint) {
+    await api.delete('/api/push/subscriptions', {
+      data: { endpoint },
+    })
+  },
+
   async searchUsersByLogin(login) {
     const response = await api.get('/api/users/search', {
       params: { login },

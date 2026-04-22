@@ -14,6 +14,7 @@ import {
   getNotificationPermissionState,
   setupNotificationPermissionBootstrap,
   showNewMessageNotification,
+  shouldUseLocalNotificationFallback,
 } from '@/shared/services/notificationService'
 
 const route = useRoute()
@@ -262,7 +263,8 @@ const onMessageCreated = async (event) => {
 
   if (!isMine && document.hidden) {
     const permission = await getNotificationPermissionState()
-    if (permission === 'granted') {
+    const shouldFallbackToLocalNotification = await shouldUseLocalNotificationFallback()
+    if (permission === 'granted' && shouldFallbackToLocalNotification) {
       const sourceChat = chatStore.getChatById(incomingChatId)
       const notification = showNewMessageNotification({
         title: sourceChat?.name || 'Новое сообщение',

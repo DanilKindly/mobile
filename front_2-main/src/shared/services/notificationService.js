@@ -1,3 +1,5 @@
+import { bootstrapWebPush, ensureWebPushSubscription, hasActiveWebPushSubscription } from './webPushService'
+
 function canUseNotifications() {
   return typeof window !== 'undefined' && 'Notification' in window
 }
@@ -47,17 +49,28 @@ export async function requestNotificationPermissionOnUserGesture() {
   if (!canUseNotifications()) return 'unsupported'
   const status = await getNotificationPermissionState()
   if (status === 'granted' || status === 'denied') {
+    if (status === 'granted') {
+      await ensureWebPushSubscription()
+    }
     return status
   }
-  return ensureNotificationPermissionForIncoming()
+  const result = await ensureNotificationPermissionForIncoming()
+  if (result === 'granted') {
+    await ensureWebPushSubscription()
+  }
+  return result
 }
 
 export async function setupNotificationPermissionBootstrap() {
   if (!canUseNotifications()) return
+  await bootstrapWebPush()
   if (bootstrapListenerBound) return
 
   const status = await getNotificationPermissionState()
   if (status === 'granted' || status === 'denied') {
+    if (status === 'granted') {
+      await ensureWebPushSubscription()
+    }
     return
   }
 
@@ -84,5 +97,10 @@ export function showNewMessageNotification({ title, body, icon = '/icon-192.png'
     data,
     tag: `chat-${data?.chatId || 'general'}`,
   })
+}
+
+export async function shouldUseLocalNotificationFallback() {
+  const hasPushSubscription = await hasActiveWebPushSubscription()
+  return !hasPushSubscription
 }
 
