@@ -30,6 +30,24 @@ function getMessagePreview(message) {
   return (message.text ?? message.Text ?? '').trim()
 }
 
+function getUnreadMessageKey(message) {
+  const directId = message?.messageId ?? message?.MessageId ?? message?.id ?? message?.Id ?? null
+  if (directId) {
+    return `id:${String(directId)}`
+  }
+
+  const rawVersion = Number(message?.version ?? message?.Version ?? 0)
+  if (Number.isFinite(rawVersion) && rawVersion > 0) {
+    return `v:${rawVersion}`
+  }
+
+  const sender = String(message?.senderUserId ?? message?.SenderUserId ?? '')
+  const sentAt = String(message?.sentAt ?? message?.SentAt ?? message?.sentAtClient ?? message?.SentAtClient ?? '')
+  const type = String(message?.type ?? message?.Type ?? '')
+  const text = String(message?.text ?? message?.Text ?? '')
+  return `sig:${sender}:${sentAt}:${type}:${text}`
+}
+
 const onMessageCreated = async (event) => {
   const message = event?.message || null
   if (!message) return
@@ -46,14 +64,7 @@ const onMessageCreated = async (event) => {
   const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
   if (senderUserId === String(currentUserId)) return
 
-  const unreadKey =
-    message.messageId ??
-    message.MessageId ??
-    (message.version != null ? `v:${message.version}` : null) ??
-    (message.Version != null ? `v:${message.Version}` : null) ??
-    message.id ??
-    message.Id ??
-    null
+  const unreadKey = getUnreadMessageKey(message)
   chatStore.incrementUnreadCount(chatId, unreadKey)
 
   if (document.hidden) {

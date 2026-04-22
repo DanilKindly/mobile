@@ -65,8 +65,16 @@ function parseDeliveryStatus(value) {
 }
 
 function normalizeMessage(dto) {
+  const normalizedMessageId =
+    dto.messageId ??
+    dto.MessageId ??
+    dto.id ??
+    dto.Id ??
+    null
+
   return {
-    messageId: dto.messageId ?? dto.MessageId,
+    messageId: normalizedMessageId,
+    id: normalizedMessageId,
     chatId: dto.chatId ?? dto.ChatId,
     senderUserId: dto.senderUserId ?? dto.SenderUserId,
     clientMessageId: dto.clientMessageId ?? dto.ClientMessageId ?? null,
