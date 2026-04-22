@@ -228,12 +228,21 @@ function pushStatusLabel(value) {
               <div :class="['text-[15px] font-semibold truncate', darkTheme ? 'text-white' : 'text-gray-900']">
                 {{ chat.name }}
               </div>
-              <div
-                v-if="formatChatTime(chat.lastMessageSentAt)"
-                class="text-[11px] flex-shrink-0"
-                :class="darkTheme ? 'text-[#8ea2b6]' : 'text-[#7f8a9a]'"
-              >
-                {{ formatChatTime(chat.lastMessageSentAt) }}
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <div
+                  v-if="formatChatTime(chat.lastMessageSentAt)"
+                  class="text-[11px]"
+                  :class="darkTheme ? 'text-[#8ea2b6]' : 'text-[#7f8a9a]'"
+                >
+                  {{ formatChatTime(chat.lastMessageSentAt) }}
+                </div>
+                <div
+                  v-if="Number(chat.unreadCount || 0) > 0"
+                  class="min-w-[20px] h-[20px] px-[6px] rounded-full text-[11px] font-semibold flex items-center justify-center"
+                  :class="darkTheme ? 'bg-blue-500 text-white' : 'bg-blue-500 text-white'"
+                >
+                  {{ Number(chat.unreadCount) > 99 ? '99+' : chat.unreadCount }}
+                </div>
               </div>
             </div>
             <div :class="['text-[13px] truncate mt-0.5', darkTheme ? 'text-[#93a7bb]' : 'text-[#6f7d8f]']">

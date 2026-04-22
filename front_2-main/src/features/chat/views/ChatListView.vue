@@ -46,6 +46,8 @@ const onMessageCreated = async (event) => {
   const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
   if (senderUserId === String(currentUserId)) return
 
+  chatStore.incrementUnreadCount(chatId)
+
   if (document.hidden) {
     const permission = await getNotificationPermissionState()
     if (permission === 'granted') {
@@ -84,6 +86,7 @@ async function ensureRealtime() {
 }
 
 async function handleSelectChat(chat) {
+  chatStore.resetUnreadCount(chat.id)
   router.push({
     path: `/chat/${chat.id}`,
     query: { name: chat.name },

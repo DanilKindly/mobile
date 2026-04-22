@@ -254,6 +254,7 @@ const onMessageCreated = async (event) => {
     const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
     const isMine = senderUserId === String(currentUserId)
     if (!isMine) {
+      chatStore.resetUnreadCount(incomingChatId)
       await messengerApi.markMessagesAsRead(incomingChatId, currentUserId)
     }
 
@@ -266,6 +267,9 @@ const onMessageCreated = async (event) => {
 
   const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
   const isMine = senderUserId === String(currentUserId)
+  if (!isMine) {
+    chatStore.incrementUnreadCount(incomingChatId)
+  }
 
   if (!isMine && document.hidden) {
     const permission = await getNotificationPermissionState()
@@ -340,6 +344,7 @@ async function openChat(targetChatId) {
 
   const requestId = ++openChatRequestId
   chatId.value = targetChatId
+  chatStore.resetUnreadCount(targetChatId)
   messageStore.setActiveChat(targetChatId)
   setImmediateChatName(targetChatId)
   stickToBottom.value = true
@@ -371,6 +376,7 @@ async function openChat(targetChatId) {
 }
 
 async function handleSelectChat(chat) {
+  chatStore.resetUnreadCount(chat.id)
   router.push({
     path: `/chat/${chat.id}`,
     query: { name: chat.name },

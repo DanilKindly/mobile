@@ -22,6 +22,13 @@ export const useChatStore = defineStore('chat', () => {
   const usersFetchedAt = ref(0)
   const chatsFetchedAt = ref(0)
 
+  function withUnreadCount(chat, fallbackUnread = 0) {
+    return {
+      ...chat,
+      unreadCount: Number(chat?.unreadCount ?? fallbackUnread ?? 0),
+    }
+  }
+
   function messagePreviewByType(type, text) {
     const normalizedType = Number(type ?? 0)
     if (normalizedType === 1) return 'Голосовое сообщение'
@@ -74,6 +81,7 @@ export const useChatStore = defineStore('chat', () => {
         lastMessageType: c.lastMessageType ?? c.LastMessageType ?? null,
         participantUserIds: participantIds,
         isGroup,
+        unreadCount: 0,
       }
     })
   }
@@ -169,10 +177,13 @@ export const useChatStore = defineStore('chat', () => {
 
       const backendChats = await messengerApi.getChatsByUser(currentUserId)
       chatsFetchedAt.value = now
+      const liveById = new Map(chats.value.map((chat) => [normalizeId(chat.id), chat]))
 
       // Render chat list instantly using cached users (if available).
       const cachedUsers = Object.values(usersById.value)
-      chats.value = sortChatsByLastMessage(dedupeDirectChats(mapChats(backendChats, cachedUsers, currentUserId)))
+      const mappedChats = mapChats(backendChats, cachedUsers, currentUserId)
+        .map((chat) => withUnreadCount(chat, liveById.get(normalizeId(chat.id))?.unreadCount || 0))
+      chats.value = sortChatsByLastMessage(dedupeDirectChats(mappedChats))
 
       // Hydrate user names in background so UI is not blocked by /api/users.
       ensureUsers(forceUsersRefresh)
@@ -196,16 +207,16 @@ export const useChatStore = defineStore('chat', () => {
               return mappedChat
             }
 
-            return {
+            return withUnreadCount({
               ...mappedChat,
               lastMessage: liveChat.lastMessage,
               lastMessageSentAt: liveChat.lastMessageSentAt,
               lastMessageSenderUserId: liveChat.lastMessageSenderUserId,
               lastMessageType: liveChat.lastMessageType,
-            }
+            }, liveChat.unreadCount || 0)
           })
 
-          chats.value = sortChatsByLastMessage(dedupeDirectChats(mergedWithLive))
+          chats.value = sortChatsByLastMessage(dedupeDirectChats(mergedWithLive.map((chat) => withUnreadCount(chat, liveById.get(normalizeId(chat.id))?.unreadCount || 0))))
         })
         .catch((e) => {
           console.error('Failed to hydrate users for chats:', e)
@@ -226,6 +237,22 @@ export const useChatStore = defineStore('chat', () => {
     chat.lastMessageType = type
 
     chats.value = sortChatsByLastMessage(chats.value)
+  }
+
+  function incrementUnreadCount(chatId) {
+    const normalizedChatId = normalizeId(chatId)
+    const chat = chats.value.find((c) => normalizeId(c.id) === normalizedChatId)
+    if (!chat) return
+
+    chat.unreadCount = Number(chat.unreadCount || 0) + 1
+  }
+
+  function resetUnreadCount(chatId) {
+    const normalizedChatId = normalizeId(chatId)
+    const chat = chats.value.find((c) => normalizeId(c.id) === normalizedChatId)
+    if (!chat) return
+
+    chat.unreadCount = 0
   }
 
   function updatePreviewFromMessage(chatId, messageDto, currentUserId) {
@@ -259,7 +286,7 @@ export const useChatStore = defineStore('chat', () => {
       const merged = [...chats.value]
       merged[existingIndex] = {
         ...merged[existingIndex],
-        ...mapped,
+        ...withUnreadCount(mapped, merged[existingIndex].unreadCount || 0),
       }
       chats.value = sortChatsByLastMessage(merged)
       return
@@ -273,7 +300,7 @@ export const useChatStore = defineStore('chat', () => {
           const merged = [...chats.value]
           merged[directDuplicateIndex] = {
             ...merged[directDuplicateIndex],
-            ...mapped,
+            ...withUnreadCount(mapped, merged[directDuplicateIndex].unreadCount || 0),
           }
           chats.value = sortChatsByLastMessage(dedupeDirectChats(merged))
           return
@@ -281,7 +308,7 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
 
-    chats.value = sortChatsByLastMessage(dedupeDirectChats([...chats.value, mapped]))
+    chats.value = sortChatsByLastMessage(dedupeDirectChats([...chats.value, withUnreadCount(mapped, 0)]))
   }
 
   return {
@@ -291,6 +318,8 @@ export const useChatStore = defineStore('chat', () => {
     updateLastMessage,
     updatePreviewFromMessage,
     applyChatPreview,
+    incrementUnreadCount,
+    resetUnreadCount,
     getChatById,
     getUserById,
     ensureUsers,
