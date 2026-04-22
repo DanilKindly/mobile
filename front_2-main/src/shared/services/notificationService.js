@@ -4,6 +4,7 @@ function canUseNotifications() {
 
 let requestInFlight = null
 let requestedInCurrentRuntime = false
+let bootstrapListenerBound = false
 
 export async function getNotificationPermissionState() {
   if (!canUseNotifications()) return 'unsupported'
@@ -40,6 +41,36 @@ export async function ensureNotificationPermissionForIncoming() {
   }
 
   return requestInFlight
+}
+
+export async function requestNotificationPermissionOnUserGesture() {
+  if (!canUseNotifications()) return 'unsupported'
+  const status = await getNotificationPermissionState()
+  if (status === 'granted' || status === 'denied') {
+    return status
+  }
+  return ensureNotificationPermissionForIncoming()
+}
+
+export async function setupNotificationPermissionBootstrap() {
+  if (!canUseNotifications()) return
+  if (bootstrapListenerBound) return
+
+  const status = await getNotificationPermissionState()
+  if (status === 'granted' || status === 'denied') {
+    return
+  }
+
+  const onFirstInteraction = async () => {
+    document.removeEventListener('pointerdown', onFirstInteraction, true)
+    document.removeEventListener('keydown', onFirstInteraction, true)
+    bootstrapListenerBound = false
+    await requestNotificationPermissionOnUserGesture()
+  }
+
+  bootstrapListenerBound = true
+  document.addEventListener('pointerdown', onFirstInteraction, true)
+  document.addEventListener('keydown', onFirstInteraction, true)
 }
 
 export function showNewMessageNotification({ title, body, icon = '/icon-192.png', data = {} }) {

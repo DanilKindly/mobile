@@ -1,7 +1,7 @@
-<script setup>
+﻿<script setup>
 import { useThemeStore } from '@/stores/theme'
 
-defineProps({
+const props = defineProps({
   chats: {
     type: Array,
     required: true,
@@ -22,6 +22,14 @@ defineProps({
 
 const emit = defineEmits(['select-chat', 'logout', 'create-chat'])
 const themeStore = useThemeStore()
+
+function normalizeId(id) {
+  return String(id || '').toLowerCase()
+}
+
+function isChatSelected(chatId) {
+  return normalizeId(chatId) === normalizeId(props.selectedChat)
+}
 
 function selectChat(chat) {
   emit('select-chat', chat)
@@ -97,13 +105,13 @@ function createChat() {
         class="p-[15px] cursor-pointer"
         :class="[
           darkTheme ? 'hover:bg-[#182533]' : 'hover:bg-[#f5f5f5]',
-          selectedChat === chat.id ? (darkTheme ? 'bg-[#182533]' : 'bg-[#d0d0d0]') : '',
+          isChatSelected(chat.id) ? (darkTheme ? 'bg-[#182533]' : 'bg-[#d0d0d0]') : '',
         ]"
         @click="selectChat(chat)"
       >
         <div class="flex items-center gap-[10px]">
           <div class="w-[40px] h-[40px] rounded-full bg-[#e3f2fd] flex items-center justify-center text-[18px] font-medium">
-            {{ chat.name[0].toUpperCase() }}
+            {{ chat.name[0]?.toUpperCase() || '?' }}
           </div>
           <div class="min-w-0">
             <div :class="['text-[16px] font-medium truncate', darkTheme ? 'text-white' : 'text-black']">{{ chat.name }}</div>

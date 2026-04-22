@@ -57,6 +57,8 @@ function resolveAssetUrl(path) {
 }
 
 let signalRConnection = null
+let connectionStartPromise = null
+const joinedChatGroups = new Set()
 
 function getSignalRConnection() {
   if (!signalRConnection) {
@@ -65,8 +67,37 @@ function getSignalRConnection() {
       .withAutomaticReconnect()
       .configureLogging(signalR.LogLevel.Information)
       .build()
+
+    signalRConnection.onreconnected(async () => {
+      const chatIds = [...joinedChatGroups]
+      joinedChatGroups.clear()
+      for (const chatId of chatIds) {
+        try {
+          await signalRConnection.invoke('JoinChat', chatId)
+          joinedChatGroups.add(chatId)
+        } catch (e) {
+          console.error('Failed to rejoin chat group after reconnect:', e)
+        }
+      }
+    })
   }
   return signalRConnection
+}
+
+async function ensureConnectionStarted() {
+  const connection = getSignalRConnection()
+  if (connection.state === signalR.HubConnectionState.Connected) {
+    return connection
+  }
+
+  if (!connectionStartPromise) {
+    connectionStartPromise = connection.start().finally(() => {
+      connectionStartPromise = null
+    })
+  }
+
+  await connectionStartPromise
+  return connection
 }
 
 function persistCurrentUser(currentUser) {
@@ -236,11 +267,7 @@ export const messengerApi = {
   },
 
   async sendMessageSignalR(chatId, text, senderUserId) {
-    const connection = getSignalRConnection()
-
-    if (connection.state !== signalR.HubConnectionState.Connected) {
-      await connection.start()
-    }
+    const connection = await ensureConnectionStarted()
 
     await connection.invoke('SendMessage', chatId, {
       senderUserId,
@@ -249,25 +276,45 @@ export const messengerApi = {
   },
 
   async joinChat(chatId) {
-    const connection = getSignalRConnection()
-    if (connection.state !== signalR.HubConnectionState.Connected) {
-      await connection.start()
+    const normalizedChatId = String(chatId || '').toLowerCase()
+    if (!normalizedChatId || joinedChatGroups.has(normalizedChatId)) {
+      return
     }
+
+    const connection = await ensureConnectionStarted()
     await connection.invoke('JoinChat', chatId)
+    joinedChatGroups.add(normalizedChatId)
   },
 
   async leaveChat(chatId) {
+    const normalizedChatId = String(chatId || '').toLowerCase()
+    if (!normalizedChatId || !joinedChatGroups.has(normalizedChatId)) {
+      return
+    }
+
     const connection = getSignalRConnection()
     if (connection.state === signalR.HubConnectionState.Connected) {
       await connection.invoke('LeaveChat', chatId)
     }
+    joinedChatGroups.delete(normalizedChatId)
+  },
+
+  async syncChatSubscriptions(chatIds) {
+    const nextSet = new Set((chatIds || []).map((id) => String(id || '').toLowerCase()).filter(Boolean))
+
+    for (const existing of [...joinedChatGroups]) {
+      if (!nextSet.has(existing)) {
+        await this.leaveChat(existing)
+      }
+    }
+
+    for (const nextChatId of nextSet) {
+      await this.joinChat(nextChatId)
+    }
   },
 
   async markMessagesAsRead(chatId, readerUserId = null) {
-    const connection = getSignalRConnection()
-    if (connection.state !== signalR.HubConnectionState.Connected) {
-      await connection.start()
-    }
+    const connection = await ensureConnectionStarted()
 
     const resolvedReaderId = readerUserId || this.getCurrentUser()?.userId
     if (!resolvedReaderId) return

@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 
 const emit = defineEmits(['send-text', 'send-voice', 'send-media'])
@@ -25,7 +25,7 @@ let finalizeMode = 'cancel'
 
 const SWIPE_CANCEL_THRESHOLD = 90
 
-const props = defineProps({
+defineProps({
   darkTheme: {
     type: Boolean,
     default: false,
@@ -255,10 +255,10 @@ onBeforeUnmount(() => {
 <template>
   <footer
     :class="[
-      'w-full absolute bottom-0 left-0 right-0 px-[20px] py-[10px]',
+      'w-full sticky bottom-0 left-0 right-0 px-4 sm:px-6 lg:px-8 pt-2 mb-1',
       darkTheme ? 'bg-[#17212B]' : 'bg-white',
     ]"
-    style="z-index: 100;"
+    style="z-index: 120; padding-bottom: calc(10px + env(safe-area-inset-bottom));"
   >
     <input
       ref="mediaInput"
@@ -285,6 +285,7 @@ onBeforeUnmount(() => {
         {{ isCancelArmed ? 'Отпустите — отмена' : 'Свайп влево для отмены, отпустите для отправки' }}
       </span>
       <button
+        type="button"
         class="ml-auto text-xs px-3 py-2 rounded-[14px]"
         :class="darkTheme ? 'bg-[#253647] text-white' : 'bg-white text-black'"
         @click="cancelRecordingByButton"
@@ -294,7 +295,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-else class="flex items-center gap-[10px]">
-      <button class="flex-shrink-0" @click="openMediaPicker" title="Прикрепить файл">
+      <button type="button" class="flex-shrink-0" @click="openMediaPicker" title="Прикрепить файл">
         <img src="/src/assets/icons/plus.svg" class="w-[28px]" :class="darkTheme ? 'invert' : ''" alt="Добавить">
       </button>
 
@@ -302,7 +303,7 @@ onBeforeUnmount(() => {
         ref="messageInputRef"
         v-model="messageInput"
         @keydown="handleKeydown"
-        class="flex-1 min-w-0 px-[15px] py-[8px] rounded-[20px]"
+        class="flex-1 min-w-0 px-[15px] py-[10px] rounded-[20px]"
         :class="[
           darkTheme ? 'bg-[#182533] text-white placeholder-[#6D7F8F]' : 'bg-[#f0f0f0] text-black placeholder-[#888]',
         ]"
@@ -310,6 +311,7 @@ onBeforeUnmount(() => {
       >
 
       <button
+        type="button"
         class="flex-shrink-0 text-xs px-3 py-2 rounded-[14px]"
         :class="darkTheme ? 'bg-[#182533] text-white' : 'bg-[#f0f0f0] text-black'"
         :title="micButtonTitle"
@@ -319,11 +321,10 @@ onBeforeUnmount(() => {
       </button>
 
       <button
+        type="button"
         class="flex-shrink-0"
         title="Отправить текст"
-        @mousedown.prevent
-        @touchstart.prevent
-        @click="sendTextMessage"
+        @pointerdown.prevent.stop="sendTextMessage"
       >
         <img src="/src/assets/icons/send-message.svg" class="w-[30px]" alt="Отправить">
       </button>

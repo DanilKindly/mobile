@@ -1,12 +1,16 @@
-<script setup>
-import { onBeforeUnmount, onMounted, computed, ref } from 'vue'
+﻿<script setup>
+import { onBeforeUnmount, onMounted, computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ChatList from '../components/ChatList.vue'
 import UserSearchDialog from '../components/UserSearchDialog.vue'
 import { useChatStore } from '@/stores/chat'
 import { useThemeStore } from '@/stores/theme'
 import messengerApi from '@/api/messenger'
-import { ensureNotificationPermissionForIncoming, showNewMessageNotification } from '@/shared/services/notificationService'
+import {
+  getNotificationPermissionState,
+  setupNotificationPermissionBootstrap,
+  showNewMessageNotification,
+} from '@/shared/services/notificationService'
 
 const router = useRouter()
 const chatStore = useChatStore()
@@ -33,29 +37,32 @@ const onMessageReceived = async (message) => {
   const senderUserId = String(message.senderUserId ?? message.SenderUserId ?? '')
   if (senderUserId === String(currentUserId)) return
 
-  const senderChat = chatStore.getChatById(chatId)
-  const title = senderChat?.name || 'Новое сообщение'
-  const body = getMessagePreview(message) || 'Новое сообщение в чате'
-
   if (document.hidden) {
-    const permission = await ensureNotificationPermissionForIncoming()
+    const permission = await getNotificationPermissionState()
     if (permission === 'granted') {
-      showNewMessageNotification({ title, body, data: { chatId } })
+      const sourceChat = chatStore.getChatById(chatId)
+      showNewMessageNotification({
+        title: sourceChat?.name || 'Новое сообщение',
+        body: getMessagePreview(message) || 'Новое сообщение в чате',
+        data: { chatId },
+      })
     }
   }
 }
 
 async function ensureRealtime() {
-  if (connection.state !== 'Connected') {
-    await connection.start()
-  }
+  const ids = chatStore.chats.map((c) => c.id)
+  await messengerApi.syncChatSubscriptions(ids)
 
   connection.off('MessageReceived', onMessageReceived)
   connection.on('MessageReceived', onMessageReceived)
 }
 
 async function handleSelectChat(chat) {
-  router.push(`/chat/${chat.id}`)
+  router.push({
+    path: `/chat/${chat.id}`,
+    query: { name: chat.name },
+  })
 }
 
 function handleLogout() {
@@ -72,8 +79,13 @@ async function selectLoginAndCreateChat(login) {
     const currentUserId = currentUser.value.userId
     const chatId = await messengerApi.getOrCreateChatWithUserByLogin(currentUserId, login)
     await chatStore.loadChats()
+    const created = chatStore.getChatById(chatId)
     showUserSearch.value = false
-    router.push(`/chat/${chatId}`)
+
+    router.push({
+      path: `/chat/${chatId}`,
+      query: { name: created?.name || '' },
+    })
   } catch (e) {
     alert(e?.response?.data?.error || e?.message || 'Не удалось создать чат.')
   }
@@ -82,7 +94,15 @@ async function selectLoginAndCreateChat(login) {
 onMounted(async () => {
   await chatStore.loadChats()
   await ensureRealtime()
+  await setupNotificationPermissionBootstrap()
 })
+
+watch(
+  () => chatStore.chats.map((c) => c.id).join(','),
+  async () => {
+    await messengerApi.syncChatSubscriptions(chatStore.chats.map((c) => c.id))
+  },
+)
 
 onBeforeUnmount(() => {
   connection.off('MessageReceived', onMessageReceived)

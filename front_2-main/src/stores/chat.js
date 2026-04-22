@@ -1,10 +1,15 @@
-import { defineStore } from 'pinia'
+﻿import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import messengerApi from '@/api/messenger'
+
+function normalizeId(id) {
+  return String(id || '').toLowerCase()
+}
 
 export const useChatStore = defineStore('chat', () => {
   const chats = ref([])
   const currentUser = ref(null)
+  const usersById = ref({})
 
   function messagePreviewByType(type, text) {
     const normalizedType = Number(type ?? 0)
@@ -16,11 +21,10 @@ export const useChatStore = defineStore('chat', () => {
   function buildPreview({ text, type, senderUserId, currentUserId }) {
     const base = messagePreviewByType(type, text)
     if (!base) return ''
-    return senderUserId === currentUserId ? `Вы: ${base}` : base
+    return normalizeId(senderUserId) === normalizeId(currentUserId) ? `Вы: ${base}` : base
   }
 
   function mapChats(backendChats, allUsers, currentUserId) {
-    const normalizeId = (id) => String(id || '').toLowerCase()
     const normalizedCurrentId = normalizeId(currentUserId)
 
     return backendChats.map((c) => {
@@ -66,6 +70,7 @@ export const useChatStore = defineStore('chat', () => {
       currentUser.value = messengerApi.getCurrentUser()
       if (!currentUser.value) {
         chats.value = []
+        usersById.value = {}
         return
       }
 
@@ -75,6 +80,11 @@ export const useChatStore = defineStore('chat', () => {
         messengerApi.getUsers(),
       ])
 
+      usersById.value = allUsers.reduce((acc, user) => {
+        acc[normalizeId(user.userId)] = user
+        return acc
+      }, {})
+
       chats.value = mapChats(backendChats, allUsers, currentUserId)
     } catch (e) {
       console.error('Failed to load chats from backend:', e)
@@ -82,7 +92,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function updateLastMessage(chatId, message, sentAt = null, senderUserId = null, type = null) {
-    const chat = chats.value.find((c) => String(c.id) === String(chatId))
+    const normalizedChatId = normalizeId(chatId)
+    const chat = chats.value.find((c) => normalizeId(c.id) === normalizedChatId)
     if (!chat) return
 
     chat.lastMessage = message
@@ -108,7 +119,12 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function getChatById(chatId) {
-    return chats.value.find((c) => String(c.id) === String(chatId)) || null
+    const normalizedChatId = normalizeId(chatId)
+    return chats.value.find((c) => normalizeId(c.id) === normalizedChatId) || null
+  }
+
+  function getUserById(userId) {
+    return usersById.value[normalizeId(userId)] || null
   }
 
   return {
@@ -118,5 +134,6 @@ export const useChatStore = defineStore('chat', () => {
     updateLastMessage,
     updatePreviewFromMessage,
     getChatById,
+    getUserById,
   }
 })
