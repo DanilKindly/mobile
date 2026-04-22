@@ -22,6 +22,72 @@ export const useChatStore = defineStore('chat', () => {
   const usersFetchedAt = ref(0)
   const chatsFetchedAt = ref(0)
   const unreadSeenByChatId = ref({})
+  const unreadCountsByChatId = ref({})
+  const unreadStorageKey = ref(null)
+
+  function getUnreadStorageKey(userId) {
+    const normalized = normalizeId(userId)
+    return normalized ? `ois_unread_counts_${normalized}` : null
+  }
+
+  function loadUnreadCountsFromStorage(userId) {
+    const key = getUnreadStorageKey(userId)
+    unreadStorageKey.value = key
+    unreadCountsByChatId.value = {}
+    if (!key) return
+
+    try {
+      const raw = localStorage.getItem(key)
+      if (!raw) return
+
+      const parsed = JSON.parse(raw)
+      if (!parsed || typeof parsed !== 'object') return
+
+      const normalized = {}
+      for (const [chatId, countValue] of Object.entries(parsed)) {
+        const count = Number(countValue || 0)
+        if (!Number.isFinite(count) || count <= 0) continue
+        normalized[normalizeId(chatId)] = count
+      }
+      unreadCountsByChatId.value = normalized
+    } catch {
+      unreadCountsByChatId.value = {}
+    }
+  }
+
+  function persistUnreadCounts() {
+    if (!unreadStorageKey.value) return
+    try {
+      localStorage.setItem(unreadStorageKey.value, JSON.stringify(unreadCountsByChatId.value))
+    } catch {
+      // ignore quota/storage errors
+    }
+  }
+
+  function getStoredUnreadCount(chatId) {
+    return Number(unreadCountsByChatId.value[normalizeId(chatId)] || 0)
+  }
+
+  function resolveUnreadCount(chatId, liveById = null) {
+    const normalizedChatId = normalizeId(chatId)
+    if (liveById?.has(normalizedChatId)) {
+      const liveCount = Number(liveById.get(normalizedChatId)?.unreadCount || 0)
+      if (liveCount > 0) return liveCount
+    }
+    return getStoredUnreadCount(chatId)
+  }
+
+  function syncUnreadCountsFromRenderedChats() {
+    const next = {}
+    for (const chat of chats.value) {
+      const count = Number(chat?.unreadCount || 0)
+      if (count > 0) {
+        next[normalizeId(chat.id)] = count
+      }
+    }
+    unreadCountsByChatId.value = next
+    persistUnreadCounts()
+  }
 
   function withUnreadCount(chat, fallbackUnread = 0) {
     return {
@@ -167,10 +233,17 @@ export const useChatStore = defineStore('chat', () => {
         usersFetchedAt.value = 0
         chatsFetchedAt.value = 0
         unreadSeenByChatId.value = {}
+        unreadCountsByChatId.value = {}
+        unreadStorageKey.value = null
         return
       }
 
       const currentUserId = currentUser.value.userId
+      const nextUnreadStorageKey = getUnreadStorageKey(currentUserId)
+      if (nextUnreadStorageKey !== unreadStorageKey.value) {
+        loadUnreadCountsFromStorage(currentUserId)
+      }
+
       const now = Date.now()
       const shouldReuseChats = !forceChatsRefresh && chats.value.length > 0 && now - chatsFetchedAt.value < 3_000
 
@@ -185,8 +258,9 @@ export const useChatStore = defineStore('chat', () => {
       // Render chat list instantly using cached users (if available).
       const cachedUsers = Object.values(usersById.value)
       const mappedChats = mapChats(backendChats, cachedUsers, currentUserId)
-        .map((chat) => withUnreadCount(chat, liveById.get(normalizeId(chat.id))?.unreadCount || 0))
+        .map((chat) => withUnreadCount(chat, resolveUnreadCount(chat.id, liveById)))
       chats.value = sortChatsByLastMessage(dedupeDirectChats(mappedChats))
+      syncUnreadCountsFromRenderedChats()
 
       // Hydrate user names in background so UI is not blocked by /api/users.
       ensureUsers(forceUsersRefresh)
@@ -219,7 +293,12 @@ export const useChatStore = defineStore('chat', () => {
             }, liveChat.unreadCount || 0)
           })
 
-          chats.value = sortChatsByLastMessage(dedupeDirectChats(mergedWithLive.map((chat) => withUnreadCount(chat, liveById.get(normalizeId(chat.id))?.unreadCount || 0))))
+          chats.value = sortChatsByLastMessage(
+            dedupeDirectChats(
+              mergedWithLive.map((chat) => withUnreadCount(chat, resolveUnreadCount(chat.id, liveById))),
+            ),
+          )
+          syncUnreadCountsFromRenderedChats()
         })
         .catch((e) => {
           console.error('Failed to hydrate users for chats:', e)
@@ -264,6 +343,11 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     chat.unreadCount = Number(chat.unreadCount || 0) + 1
+    unreadCountsByChatId.value = {
+      ...unreadCountsByChatId.value,
+      [normalizedChatId]: chat.unreadCount,
+    }
+    persistUnreadCounts()
   }
 
   function resetUnreadCount(chatId) {
@@ -272,6 +356,13 @@ export const useChatStore = defineStore('chat', () => {
     if (!chat) return
 
     chat.unreadCount = 0
+    if (unreadCountsByChatId.value[normalizedChatId]) {
+      const nextCounts = { ...unreadCountsByChatId.value }
+      delete nextCounts[normalizedChatId]
+      unreadCountsByChatId.value = nextCounts
+      persistUnreadCounts()
+    }
+
     if (unreadSeenByChatId.value[normalizedChatId]) {
       const next = { ...unreadSeenByChatId.value }
       delete next[normalizedChatId]
@@ -332,7 +423,10 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
 
-    chats.value = sortChatsByLastMessage(dedupeDirectChats([...chats.value, withUnreadCount(mapped, 0)]))
+    chats.value = sortChatsByLastMessage(
+      dedupeDirectChats([...chats.value, withUnreadCount(mapped, getStoredUnreadCount(mapped.id))]),
+    )
+    syncUnreadCountsFromRenderedChats()
   }
 
   return {

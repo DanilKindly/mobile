@@ -208,7 +208,7 @@ function pushStatusLabel(value) {
       <div
         v-for="chat in chats"
         :key="chat.id"
-        class="cursor-pointer rounded-xl px-3 py-2.5 mb-1.5 border transition-all duration-150"
+        class="cursor-pointer rounded-xl px-3 py-2.5 mb-1.5 border transition-all duration-150 h-[70px]"
         :class="[
           darkTheme ? 'border-transparent hover:bg-[#1b2835]' : 'border-transparent hover:bg-[#eef2f7]',
           isChatSelected(chat.id)
@@ -217,36 +217,33 @@ function pushStatusLabel(value) {
         ]"
         @click="selectChat(chat)"
       >
-        <div class="flex items-start gap-3 min-w-0">
+        <div class="flex items-center gap-3 min-w-0 h-full">
           <div
             class="w-[48px] h-[48px] rounded-full flex-shrink-0 bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-[17px] font-semibold"
           >
             {{ chat.name[0]?.toUpperCase() || '?' }}
           </div>
-          <div class="min-w-0 flex-1 pt-[1px]">
-            <div class="flex items-center justify-between gap-2">
-              <div :class="['text-[15px] font-semibold truncate', darkTheme ? 'text-white' : 'text-gray-900']">
-                {{ chat.name }}
-              </div>
-              <div class="flex flex-col items-end gap-1 flex-shrink-0 min-w-[44px]">
-                <div
-                  v-if="formatChatTime(chat.lastMessageSentAt)"
-                  class="text-[11px]"
-                  :class="darkTheme ? 'text-[#8ea2b6]' : 'text-[#7f8a9a]'"
-                >
-                  {{ formatChatTime(chat.lastMessageSentAt) }}
-                </div>
-                <div
-                  v-if="Number(chat.unreadCount || 0) > 0"
-                  class="min-w-[20px] h-[20px] px-[6px] rounded-full text-[11px] font-semibold flex items-center justify-center"
-                  :class="darkTheme ? 'bg-blue-500 text-white' : 'bg-blue-500 text-white'"
-                >
-                  {{ Number(chat.unreadCount) > 99 ? '99+' : chat.unreadCount }}
-                </div>
-              </div>
+          <div class="min-w-0 flex-1 h-full grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[20px_18px] gap-x-2 items-start">
+            <div :class="['text-[15px] font-semibold truncate leading-[20px] row-start-1 col-start-1', darkTheme ? 'text-white' : 'text-gray-900']">
+              {{ chat.name }}
             </div>
-            <div :class="['text-[13px] truncate mt-0.5', darkTheme ? 'text-[#93a7bb]' : 'text-[#6f7d8f]']">
+            <div
+              class="text-[11px] leading-[20px] row-start-1 col-start-2 justify-self-end whitespace-nowrap"
+              :class="darkTheme ? 'text-[#8ea2b6]' : 'text-[#7f8a9a]'"
+            >
+              {{ formatChatTime(chat.lastMessageSentAt) }}
+            </div>
+            <div :class="['text-[13px] truncate leading-[18px] row-start-2 col-start-1', darkTheme ? 'text-[#93a7bb]' : 'text-[#6f7d8f]']">
               {{ displayPreview(chat) }}
+            </div>
+            <div class="row-start-2 col-start-2 justify-self-end h-[18px] flex items-start">
+              <div
+                v-if="Number(chat.unreadCount || 0) > 0"
+                class="min-w-[20px] h-[18px] px-[6px] rounded-full text-[11px] font-semibold leading-[18px] text-center"
+                :class="darkTheme ? 'bg-blue-500 text-white' : 'bg-blue-500 text-white'"
+              >
+                {{ Number(chat.unreadCount) > 99 ? '99+' : chat.unreadCount }}
+              </div>
             </div>
           </div>
         </div>
