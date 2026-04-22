@@ -25,23 +25,40 @@ const themeStore = useThemeStore()
 const currentUser = ref(null)
 const chatId = ref(null)
 const chatName = ref('')
+const activePeerId = ref(null)
 const isChatLoading = ref(false)
+const isMessageViewportReady = ref(false)
 const showUserSearch = ref(false)
 const messagesContainer = ref(null)
 const stickToBottom = ref(true)
 
+const onlineUsers = ref({})
+const lastSeenByUser = ref({})
 const connection = messengerApi.getConnection()
 const routeChatId = computed(() => String(route.params.chatId || ''))
 
 let openChatRequestId = 0
 let scrollTimers = []
+let lastScrollTop = 0
+let presenceState = null
+let blurPresenceTimer = null
+let pageHideHandler = null
+let autoScrollUntil = 0
 
 function clearScrollTimers() {
   scrollTimers.forEach((id) => clearTimeout(id))
   scrollTimers = []
 }
 
+function clearBlurPresenceTimer() {
+  if (blurPresenceTimer) {
+    clearTimeout(blurPresenceTimer)
+    blurPresenceTimer = null
+  }
+}
+
 function handleLogout() {
+  updatePresence(false)
   messengerApi.logout()
   router.push('/')
 }
@@ -92,6 +109,7 @@ function isNearBottom() {
 function scrollToBottomNow() {
   const el = messagesContainer.value
   if (!el) return
+  autoScrollUntil = Date.now() + 320
   el.scrollTop = el.scrollHeight
 }
 
@@ -105,28 +123,117 @@ async function scrollToBottomStable() {
   scrollTimers.push(setTimeout(scrollToBottomNow, 180))
 }
 
+function dismissKeyboardIfNeeded() {
+  if (window.innerWidth >= 1024) return
+
+  const active = document.activeElement
+  if (!active) return
+
+  const tag = active.tagName?.toLowerCase()
+  const isEditable = tag === 'input' || tag === 'textarea' || active.isContentEditable
+  if (isEditable) {
+    active.blur()
+  }
+}
+
 function handleMessagesScroll() {
+  const el = messagesContainer.value
+  if (!el) return
+
+  const delta = Math.abs(el.scrollTop - lastScrollTop)
+  lastScrollTop = el.scrollTop
+
+  const isAutoScroll = Date.now() < autoScrollUntil
+
+  if (delta > 8 && !isAutoScroll) {
+    dismissKeyboardIfNeeded()
+  }
+
   stickToBottom.value = isNearBottom()
 }
 
-function setImmediateChatName(targetChatId) {
-  const fromQuery = typeof route.query.name === 'string' ? route.query.name.trim() : ''
-  if (fromQuery) {
-    chatName.value = fromQuery
-    return
+function sanitizeIncomingChatName(nameValue) {
+  const normalized = String(nameValue || '').trim()
+  if (!normalized) return ''
+
+  const lowered = normalized.toLowerCase()
+  if (lowered === 'чат' || lowered === 'chat') {
+    return ''
   }
 
-  const cached = chatStore.getChatById(targetChatId)
-  chatName.value = cached?.name || 'Собеседник'
+  return normalized
 }
 
-async function resolveChatName(targetChatId) {
-  const cached = chatStore.getChatById(targetChatId)
-  if (cached?.name) return cached.name
+function setImmediateChatName(targetChatId) {
+  const fromQuery = sanitizeIncomingChatName(route.query.name)
+  if (fromQuery) {
+    chatName.value = fromQuery
+  } else {
+    const cached = chatStore.getChatById(targetChatId)
+    chatName.value = cached?.name || 'Собеседник'
+  }
 
-  await chatStore.loadChats()
-  const afterReload = chatStore.getChatById(targetChatId)
-  return afterReload?.name || 'Собеседник'
+  const currentUserId = getCurrentUserId()
+  const cachedChat = chatStore.getChatById(targetChatId)
+  const participantIds = cachedChat?.participantUserIds || []
+  activePeerId.value = participantIds.find((id) => String(id) !== String(currentUserId)) || null
+}
+
+function resolveChatName(targetChatId) {
+  const cached = chatStore.getChatById(targetChatId)
+  if (cached?.name) {
+    const currentUserId = getCurrentUserId()
+    const participantIds = cached.participantUserIds || []
+    activePeerId.value = participantIds.find((id) => String(id) !== String(currentUserId)) || null
+    return cached.name
+  }
+
+  return chatName.value || 'Собеседник'
+}
+
+async function syncPresenceSnapshot() {
+  const online = await messengerApi.getOnlineUsers()
+  onlineUsers.value = (online || []).reduce((acc, userId) => {
+    acc[String(userId).toLowerCase()] = true
+    return acc
+  }, {})
+}
+
+async function updatePresence(nextOnline) {
+  const userId = getCurrentUserId()
+  if (!userId) return
+
+  if (presenceState === nextOnline) return
+
+  presenceState = nextOnline
+  try {
+    await messengerApi.setPresence(userId, nextOnline)
+  } catch (e) {
+    console.error('Failed to update presence:', e)
+  }
+}
+
+function handleVisibilityPresence() {
+  clearBlurPresenceTimer()
+  const shouldBeOnline = document.visibilityState === 'visible' && document.hasFocus()
+  updatePresence(shouldBeOnline)
+}
+
+function handleWindowFocus() {
+  clearBlurPresenceTimer()
+  if (document.visibilityState === 'visible') {
+    updatePresence(true)
+  }
+}
+
+function handleWindowBlur() {
+  clearBlurPresenceTimer()
+
+  blurPresenceTimer = setTimeout(() => {
+    if (document.visibilityState !== 'visible' || !document.hasFocus()) {
+      updatePresence(false)
+    }
+  }, 900)
 }
 
 async function ensureRealtime() {
@@ -134,9 +241,11 @@ async function ensureRealtime() {
 
   connection.off('MessageReceived', onMessageReceived)
   connection.off('MessagesRead', onMessagesRead)
+  connection.off('PresenceChanged', onPresenceChanged)
 
   connection.on('MessageReceived', onMessageReceived)
   connection.on('MessagesRead', onMessagesRead)
+  connection.on('PresenceChanged', onPresenceChanged)
 }
 
 const onMessageReceived = async (message) => {
@@ -158,7 +267,7 @@ const onMessageReceived = async (message) => {
       await messengerApi.markMessagesAsRead(incomingChatId, currentUserId)
     }
 
-    if (stickToBottom.value) {
+    if (stickToBottom.value && isMessageViewportReady.value) {
       await scrollToBottomStable()
     }
 
@@ -169,11 +278,19 @@ const onMessageReceived = async (message) => {
     const permission = await getNotificationPermissionState()
     if (permission === 'granted') {
       const sourceChat = chatStore.getChatById(incomingChatId)
-      showNewMessageNotification({
+      const notification = showNewMessageNotification({
         title: sourceChat?.name || 'Новое сообщение',
         body: getMessagePreview(message) || 'Новое сообщение в чате',
         data: { chatId: incomingChatId },
       })
+
+      if (notification) {
+        notification.onclick = () => {
+          window.focus()
+          router.push({ path: `/chat/${incomingChatId}` })
+          notification.close()
+        }
+      }
     }
   }
 }
@@ -181,6 +298,29 @@ const onMessageReceived = async (message) => {
 const onMessagesRead = (incomingChatId, messageIds, readerUserId) => {
   if (String(incomingChatId).toLowerCase() !== String(chatId.value).toLowerCase()) return
   messageStore.markMessagesAsReadByIds(messageIds, readerUserId, getCurrentUserId())
+}
+
+async function handleMessageMediaLoaded() {
+  if (!stickToBottom.value || !isMessageViewportReady.value) return
+  await scrollToBottomStable()
+}
+
+const onPresenceChanged = (userId, isOnline, lastSeenAt) => {
+  const normalized = String(userId || '').toLowerCase()
+  if (!normalized) return
+
+  if (isOnline) {
+    onlineUsers.value = { ...onlineUsers.value, [normalized]: true }
+    return
+  }
+
+  const next = { ...onlineUsers.value }
+  delete next[normalized]
+  onlineUsers.value = next
+
+  if (lastSeenAt) {
+    lastSeenByUser.value = { ...lastSeenByUser.value, [normalized]: lastSeenAt }
+  }
 }
 
 async function openChat(targetChatId) {
@@ -191,25 +331,30 @@ async function openChat(targetChatId) {
 
   const requestId = ++openChatRequestId
   isChatLoading.value = true
+  isMessageViewportReady.value = false
   chatId.value = targetChatId
   setImmediateChatName(targetChatId)
 
   try {
-    await messengerApi.syncChatSubscriptions(chatStore.chats.map((c) => c.id))
     await messageStore.loadMessagesByChatId(targetChatId, currentUserId)
 
     if (requestId !== openChatRequestId) return
 
-    chatName.value = await resolveChatName(targetChatId)
+    chatName.value = resolveChatName(targetChatId)
     if (requestId !== openChatRequestId) return
 
-    await messengerApi.markMessagesAsRead(targetChatId, currentUserId)
     stickToBottom.value = true
     await scrollToBottomStable()
+    isMessageViewportReady.value = true
+
+    // Do not block initial open on read receipt call.
+    messengerApi.markMessagesAsRead(targetChatId, currentUserId)
+      .catch((e) => console.error('Failed to mark messages as read:', e))
   } catch (e) {
     console.error('Failed to open chat:', e)
     if (requestId === openChatRequestId) {
       messageStore.clearMessages()
+      isMessageViewportReady.value = true
     }
   } finally {
     if (requestId === openChatRequestId) {
@@ -225,9 +370,27 @@ async function handleSelectChat(chat) {
   })
 }
 
+const peerStatusText = computed(() => {
+  const peer = String(activePeerId.value || '').toLowerCase()
+  if (!peer) return 'не в сети'
+
+  if (onlineUsers.value[peer]) {
+    return 'в сети'
+  }
+
+  const lastSeen = lastSeenByUser.value[peer]
+  if (!lastSeen) return 'не в сети'
+
+  const dt = new Date(lastSeen)
+  if (Number.isNaN(dt.getTime())) return 'не в сети'
+
+  return `был(а) в сети ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+})
+
 watch(
   () => messageStore.messages.length,
   async () => {
+    if (!isMessageViewportReady.value) return
     if (stickToBottom.value) {
       await scrollToBottomStable()
     }
@@ -250,6 +413,25 @@ watch(
   },
 )
 
+watch(
+  () => chatStore.chats,
+  () => {
+    if (!chatId.value) return
+    const currentChat = chatStore.getChatById(chatId.value)
+    if (!currentChat) return
+
+    const displayName = currentChat.name || 'Собеседник'
+    if (!chatName.value || chatName.value === 'Собеседник' || chatName.value === 'чат') {
+      chatName.value = displayName
+    }
+
+    const currentUserId = getCurrentUserId()
+    const participantIds = currentChat.participantUserIds || []
+    activePeerId.value = participantIds.find((id) => String(id) !== String(currentUserId)) || null
+  },
+  { deep: true },
+)
+
 onMounted(async () => {
   currentUser.value = messengerApi.getCurrentUser()
   if (!currentUser.value) {
@@ -257,21 +439,49 @@ onMounted(async () => {
     return
   }
 
+  const shouldOpenFromRoute = routeChatId.value && isValidGuid(routeChatId.value)
+  const openingChatPromise = shouldOpenFromRoute ? openChat(routeChatId.value) : Promise.resolve()
+
+  if (chatStore.chats.length === 0) {
+    chatStore.loadChats().catch((e) => console.error('Failed to load chats:', e))
+  } else {
+    // Refresh chats in background without blocking chat open.
+    chatStore.loadChats().catch((e) => console.error('Failed to refresh chats:', e))
+  }
+
+  await ensureRealtime()
   await Promise.all([
-    chatStore.loadChats(),
-    ensureRealtime(),
+    syncPresenceSnapshot(),
     setupNotificationPermissionBootstrap(),
   ])
 
-  if (routeChatId.value && isValidGuid(routeChatId.value)) {
-    await openChat(routeChatId.value)
-  }
+  await updatePresence(true)
+
+  document.addEventListener('visibilitychange', handleVisibilityPresence)
+  window.addEventListener('focus', handleWindowFocus)
+  window.addEventListener('blur', handleWindowBlur)
+  pageHideHandler = () => updatePresence(false)
+  window.addEventListener('pagehide', pageHideHandler)
+
+  await openingChatPromise
 })
 
 onBeforeUnmount(() => {
   clearScrollTimers()
+  clearBlurPresenceTimer()
+  updatePresence(false)
+
+  document.removeEventListener('visibilitychange', handleVisibilityPresence)
+  window.removeEventListener('focus', handleWindowFocus)
+  window.removeEventListener('blur', handleWindowBlur)
+  if (pageHideHandler) {
+    window.removeEventListener('pagehide', pageHideHandler)
+    pageHideHandler = null
+  }
+
   connection.off('MessageReceived', onMessageReceived)
   connection.off('MessagesRead', onMessagesRead)
+  connection.off('PresenceChanged', onPresenceChanged)
 })
 
 async function handleSendText(text) {
@@ -329,7 +539,7 @@ async function handleSendMedia(file) {
       class="flex-1 h-screen flex flex-col overflow-hidden"
       :class="routeChatId ? 'flex' : 'hidden lg:flex'"
     >
-      <ChatHeader :user-name="chatName || 'Собеседник'" user-state="в сети" :dark-theme="themeStore.darkTheme" :show-back="true" />
+      <ChatHeader :user-name="chatName || 'Собеседник'" :user-state="peerStatusText" :dark-theme="themeStore.darkTheme" :show-back="true" />
 
       <main
         ref="messagesContainer"
@@ -338,17 +548,20 @@ async function handleSendMedia(file) {
         style="z-index: 50;"
         @scroll="handleMessagesScroll"
       >
-        <div class="flex flex-col justify-end min-h-full">
-          <div v-if="isChatLoading && !messageStore.messages.length" class="mx-auto text-sm" :class="themeStore.darkTheme ? 'text-[#6D7F8F]' : 'text-[#868686]'">
-            Загружаем сообщения...
-          </div>
-
+        <div class="flex flex-col justify-end min-h-full" v-show="isMessageViewportReady">
           <Message
             v-for="msg in messageStore.messages"
             :key="msg.id || `${msg.time}-${msg.text}`"
             :message="msg"
             :dark-theme="themeStore.darkTheme"
+            @media-loaded="handleMessageMediaLoaded"
           />
+        </div>
+
+        <div v-if="!isMessageViewportReady" class="h-full flex items-center justify-center">
+          <div class="text-sm" :class="themeStore.darkTheme ? 'text-[#6D7F8F]' : 'text-[#868686]'">
+            {{ isChatLoading ? 'Открываем чат...' : 'Загружаем сообщения...' }}
+          </div>
         </div>
       </main>
 

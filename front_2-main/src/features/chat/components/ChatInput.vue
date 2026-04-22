@@ -69,6 +69,19 @@ function getPreferredMimeType() {
   return ''
 }
 
+async function getMicrophonePermissionState() {
+  try {
+    if (navigator?.permissions?.query) {
+      const status = await navigator.permissions.query({ name: 'microphone' })
+      return status.state
+    }
+  } catch {
+    // Browser may not support microphone permission query.
+  }
+
+  return 'prompt'
+}
+
 function detachPointerListeners() {
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('pointerup', onPointerUp)
@@ -98,6 +111,12 @@ async function startRecording(pointerX) {
   if (isRecording.value || isSendingVoice.value) return
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
     recordError.value = 'Запись голоса не поддерживается в этом браузере.'
+    return
+  }
+
+  const permissionState = await getMicrophonePermissionState()
+  if (permissionState === 'denied') {
+    recordError.value = 'Доступ к микрофону запрещен. Разрешите его в настройках браузера.'
     return
   }
 
@@ -254,11 +273,12 @@ onBeforeUnmount(() => {
 
 <template>
   <footer
+    class="chat-input-footer"
     :class="[
-      'w-full sticky bottom-0 left-0 right-0 px-4 sm:px-6 lg:px-8 pt-2 mb-1',
+      'w-full sticky bottom-0 left-0 right-0 px-4 sm:px-6 lg:px-8 pt-2',
       darkTheme ? 'bg-[#17212B]' : 'bg-white',
     ]"
-    style="z-index: 120; padding-bottom: calc(10px + env(safe-area-inset-bottom));"
+    style="z-index: 120;"
   >
     <input
       ref="mediaInput"
@@ -322,9 +342,9 @@ onBeforeUnmount(() => {
 
       <button
         type="button"
-        class="flex-shrink-0"
+        class="flex-shrink-0 chat-send-button"
         title="Отправить текст"
-        @pointerdown.prevent.stop="sendTextMessage"
+        @click.prevent.stop="sendTextMessage"
       >
         <img src="/src/assets/icons/send-message.svg" class="w-[30px]" alt="Отправить">
       </button>
@@ -338,3 +358,20 @@ onBeforeUnmount(() => {
     </div>
   </footer>
 </template>
+
+<style scoped>
+.chat-input-footer {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+
+.chat-send-button {
+  touch-action: manipulation;
+}
+
+@media (max-width: 1023px) {
+  .chat-input-footer {
+    margin-bottom: calc(14px + env(safe-area-inset-bottom));
+    padding-bottom: 12px;
+  }
+}
+</style>

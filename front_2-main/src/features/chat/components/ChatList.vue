@@ -124,6 +124,7 @@ function createChat() {
     </div>
 
     <div
+      class="chat-list-bottom-controls"
       :class="[
         'p-[15px] border-t flex-shrink-0',
         darkTheme ? 'bg-[#17212B] border-[#182533]' : 'bg-[#f5f5f5] border-[#d0d0d0]',
@@ -147,3 +148,11 @@ function createChat() {
     </div>
   </aside>
 </template>
+
+<style scoped>
+@media (max-width: 1023px) {
+  .chat-list-bottom-controls {
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+}
+</style>

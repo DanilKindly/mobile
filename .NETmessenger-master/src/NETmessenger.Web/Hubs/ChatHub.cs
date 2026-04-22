@@ -1,3 +1,4 @@
+﻿using System.Collections.Concurrent;
 using Microsoft.AspNetCore.SignalR;
 using NETmessenger.Application.Abstractions.Messages;
 using NETmessenger.Contracts.Messages;
@@ -6,6 +7,9 @@ namespace NETmessenger.Web.Hubs;
 
 public class ChatHub(IMessageService messageService) : Hub
 {
+    private static readonly ConcurrentDictionary<string, Guid> ConnectionToUser = new();
+    private static readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>> UserConnections = new();
+
     public Task JoinChat(Guid chatId)
     {
         return Groups.AddToGroupAsync(Context.ConnectionId, GetChatGroup(chatId));
@@ -34,18 +38,109 @@ public class ChatHub(IMessageService messageService) : Hub
             .SendAsync("MessagesRead", chatId, readMessageIds, readerUserId);
     }
 
+    public async Task SetPresence(Guid userId, bool isOnline)
+    {
+        if (userId == Guid.Empty)
+        {
+            return;
+        }
+
+        if (isOnline)
+        {
+            var becameOnline = RegisterConnection(userId, Context.ConnectionId);
+            if (becameOnline)
+            {
+                await Clients.All.SendAsync("PresenceChanged", userId, true, (DateTime?)null);
+            }
+
+            return;
+        }
+
+        var becameOffline = UnregisterConnection(Context.ConnectionId, userId);
+        if (becameOffline)
+        {
+            await Clients.All.SendAsync("PresenceChanged", userId, false, DateTime.UtcNow);
+        }
+    }
+
+    public Task<IReadOnlyCollection<Guid>> GetOnlineUsers()
+    {
+        var onlineUsers = UserConnections
+            .Where(x => !x.Value.IsEmpty)
+            .Select(x => x.Key)
+            .ToArray();
+
+        return Task.FromResult<IReadOnlyCollection<Guid>>(onlineUsers);
+    }
+
+    public override async Task OnDisconnectedAsync(Exception? exception)
+    {
+        var becameOffline = UnregisterConnection(Context.ConnectionId);
+        if (becameOffline.HasValue)
+        {
+            await Clients.All.SendAsync("PresenceChanged", becameOffline.Value, false, DateTime.UtcNow);
+        }
+
+        await base.OnDisconnectedAsync(exception);
+    }
+
     public static string GetChatGroup(Guid chatId)
     {
         return $"chat:{chatId:D}";
     }
-    
-    private async Task StartTyping(Guid chatId, Guid userId)
+
+    private static bool RegisterConnection(Guid userId, string connectionId)
     {
-        await Clients.Group(GetChatGroup(chatId)).SendAsync("UserTyping", userId);
+        if (ConnectionToUser.TryGetValue(connectionId, out var existingUserId) && existingUserId != userId)
+        {
+            UnregisterConnection(connectionId, existingUserId);
+        }
+
+        ConnectionToUser[connectionId] = userId;
+
+        var bucket = UserConnections.GetOrAdd(userId, _ => new ConcurrentDictionary<string, byte>());
+        var wasOffline = bucket.IsEmpty;
+        bucket[connectionId] = 0;
+
+        return wasOffline;
     }
-    
-    private async Task StopTyping(Guid chatId, Guid userId)
+
+    private static Guid? UnregisterConnection(string connectionId)
     {
-        await Clients.Group(GetChatGroup(chatId)).SendAsync("UserStoppedTyping", userId);
+        if (!ConnectionToUser.TryRemove(connectionId, out var userId))
+        {
+            return null;
+        }
+
+        return RemoveFromUserBucket(connectionId, userId) ? userId : null;
+    }
+
+    private static bool UnregisterConnection(string connectionId, Guid expectedUserId)
+    {
+        if (ConnectionToUser.TryGetValue(connectionId, out var mappedUserId) && mappedUserId != expectedUserId)
+        {
+            return false;
+        }
+
+        ConnectionToUser.TryRemove(connectionId, out _);
+        return RemoveFromUserBucket(connectionId, expectedUserId);
+    }
+
+    private static bool RemoveFromUserBucket(string connectionId, Guid userId)
+    {
+        if (!UserConnections.TryGetValue(userId, out var bucket))
+        {
+            return false;
+        }
+
+        bucket.TryRemove(connectionId, out _);
+        var isOffline = bucket.IsEmpty;
+
+        if (isOffline)
+        {
+            UserConnections.TryRemove(userId, out _);
+        }
+
+        return isOffline;
     }
 }

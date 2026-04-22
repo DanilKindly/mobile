@@ -41,11 +41,19 @@ const onMessageReceived = async (message) => {
     const permission = await getNotificationPermissionState()
     if (permission === 'granted') {
       const sourceChat = chatStore.getChatById(chatId)
-      showNewMessageNotification({
+      const notification = showNewMessageNotification({
         title: sourceChat?.name || 'Новое сообщение',
         body: getMessagePreview(message) || 'Новое сообщение в чате',
         data: { chatId },
       })
+
+      if (notification) {
+        notification.onclick = () => {
+          window.focus()
+          router.push({ path: `/chat/${chatId}` })
+          notification.close()
+        }
+      }
     }
   }
 }
@@ -92,7 +100,22 @@ async function selectLoginAndCreateChat(login) {
 }
 
 onMounted(async () => {
-  await chatStore.loadChats()
+  const rememberedUser = messengerApi.getCurrentUser()
+  if (!rememberedUser) {
+    router.push('/')
+    return
+  }
+
+  if (!chatStore.currentUser) {
+    chatStore.currentUser = rememberedUser
+  }
+
+  if (chatStore.chats.length === 0) {
+    await chatStore.loadChats()
+  } else {
+    chatStore.loadChats().catch((e) => console.error('Failed to refresh chats:', e))
+  }
+
   await ensureRealtime()
   await setupNotificationPermissionBootstrap()
 })

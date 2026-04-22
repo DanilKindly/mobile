@@ -59,6 +59,7 @@ function resolveAssetUrl(path) {
 let signalRConnection = null
 let connectionStartPromise = null
 const joinedChatGroups = new Set()
+let currentPresenceUserId = null
 
 function getSignalRConnection() {
   if (!signalRConnection) {
@@ -69,6 +70,14 @@ function getSignalRConnection() {
       .build()
 
     signalRConnection.onreconnected(async () => {
+      if (currentPresenceUserId) {
+        try {
+          await signalRConnection.invoke('SetPresence', currentPresenceUserId, true)
+        } catch (e) {
+          console.error('Failed to restore presence after reconnect:', e)
+        }
+      }
+
       const chatIds = [...joinedChatGroups]
       joinedChatGroups.clear()
       for (const chatId of chatIds) {
@@ -300,17 +309,25 @@ export const messengerApi = {
   },
 
   async syncChatSubscriptions(chatIds) {
-    const nextSet = new Set((chatIds || []).map((id) => String(id || '').toLowerCase()).filter(Boolean))
+    const nextMap = new Map(
+      (chatIds || [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+        .map((id) => [id.toLowerCase(), id]),
+    )
+    const nextSet = new Set(nextMap.keys())
 
-    for (const existing of [...joinedChatGroups]) {
-      if (!nextSet.has(existing)) {
-        await this.leaveChat(existing)
-      }
-    }
+    await ensureConnectionStarted()
 
-    for (const nextChatId of nextSet) {
-      await this.joinChat(nextChatId)
-    }
+    await Promise.all(
+      [...joinedChatGroups]
+        .filter((existing) => !nextSet.has(existing))
+        .map((existing) => this.leaveChat(existing)),
+    )
+
+    await Promise.all(
+      [...nextSet].map((normalizedId) => this.joinChat(nextMap.get(normalizedId) || normalizedId)),
+    )
   },
 
   async markMessagesAsRead(chatId, readerUserId = null) {
@@ -320,6 +337,23 @@ export const messengerApi = {
     if (!resolvedReaderId) return
 
     await connection.invoke('MarkMessagesAsRead', chatId, resolvedReaderId)
+  },
+
+  async setPresence(userId, isOnline) {
+    if (!userId) return
+    const connection = await ensureConnectionStarted()
+
+    await connection.invoke('SetPresence', userId, Boolean(isOnline))
+    if (isOnline) {
+      currentPresenceUserId = userId
+    } else if (String(currentPresenceUserId) === String(userId)) {
+      currentPresenceUserId = null
+    }
+  },
+
+  async getOnlineUsers() {
+    const connection = await ensureConnectionStarted()
+    return connection.invoke('GetOnlineUsers')
   },
 
   getConnection() {

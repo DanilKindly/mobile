@@ -1,98 +1,57 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5017'
 
+async function handleJson(response, defaultError) {
+  if (!response.ok) {
+    throw new Error(defaultError)
+  }
+
+  return response.json()
+}
+
 export const apiService = {
-  /**
-   * Получить список чатов
-   * @returns {Promise<Array>}
-   */
   async getChats() {
     const response = await fetch(`${API_BASE_URL}/api/chats`)
-    if (!response.ok) throw new Error('Failed to fetch chats')
-    return response.json()
+    return handleJson(response, 'Failed to fetch chats')
   },
 
-  /**
-   * Получить сообщения чата
-   * @param {string} chatName - имя чата
-   * @returns {Promise<Array>}
-   */
-  async getMessages(chatName) {
-    const response = await fetch(`${API_BASE_URL}/chats/${chatName}/messages`)
-    if (!response.ok) throw new Error('Failed to fetch messages')
-    return response.json()
+  async getMessages(chatId) {
+    const response = await fetch(`${API_BASE_URL}/api/chats/${chatId}/messages`)
+    return handleJson(response, 'Failed to fetch messages')
   },
 
-  /**
-   * Отправить сообщение
-   * @param {string} chatName - имя чата
-   * @param {string} text - текст сообщения
-   * @returns {Promise<Object>}
-   */
-  async sendMessage(chatName, text) {
-    const response = await fetch(`${API_BASE_URL}/chats/${chatName}/messages`, {
+  async sendMessage(chatId, text, senderUserId) {
+    const response = await fetch(`${API_BASE_URL}/api/chats/${chatId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ text, senderUserId }),
     })
-    if (!response.ok) throw new Error('Failed to send message')
-    return response.json()
+    return handleJson(response, 'Failed to send message')
   },
 
-  /**
-   * Отметить сообщения как прочитанные
-   * @param {string} chatName - имя чата
-   * @param {Array<number>} messageIds - ID сообщений
-   * @returns {Promise<Object>}
-   */
-  async markAsRead(chatName, messageIds) {
-    const response = await fetch(`${API_BASE_URL}/chats/${chatName}/read`, {
+  async markAsRead(chatId, readerUserId) {
+    const response = await fetch(`${API_BASE_URL}/api/chats/${chatId}/read`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messageIds })
+      body: JSON.stringify({ readerUserId }),
     })
-    if (!response.ok) throw new Error('Failed to mark as read')
-    return response.json()
+    return handleJson(response, 'Failed to mark messages as read')
   },
 
-  /**
-   * Получить профиль пользователя
-   * @returns {Promise<Object>}
-   */
-  async getProfile() {
-    const response = await fetch(`${API_BASE_URL}/profile`)
-    if (!response.ok) throw new Error('Failed to fetch profile')
-    return response.json()
-  },
-
-  /**
-   * Авторизация
-   * @param {string} username
-   * @param {string} password
-   * @returns {Promise<Object>}
-   */
-  async login(username, password) {
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+  async login(login, password) {
+    const response = await fetch(`${API_BASE_URL}/api/users/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ login, password }),
     })
-    if (!response.ok) throw new Error('Failed to login')
-    return response.json()
+    return handleJson(response, 'Failed to login')
   },
 
-  /**
-   * Регистрация
-   * @param {string} username
-   * @param {string} password
-   * @returns {Promise<Object>}
-   */
-  async register(username, password) {
-    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+  async register(login, password, username) {
+    const response = await fetch(`${API_BASE_URL}/api/users/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ login, password, username }),
     })
-    if (!response.ok) throw new Error('Failed to register')
-    return response.json()
+    return handleJson(response, 'Failed to register')
   },
 }

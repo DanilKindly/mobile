@@ -11,6 +11,7 @@ const props = defineProps({
     default: false,
   },
 })
+const emit = defineEmits(['media-loaded'])
 
 const voiceAudioRef = ref(null)
 const isVoicePlaying = ref(false)
@@ -52,6 +53,10 @@ function onVoicePlay() {
 function onVoicePause() {
   isVoicePlaying.value = false
 }
+
+function onMediaLoaded() {
+  emit('media-loaded')
+}
 </script>
 
 <template>
@@ -71,10 +76,10 @@ function onVoicePause() {
             :class="darkTheme ? 'bg-[#182533] text-white' : 'bg-white text-black'"
             @click="toggleVoicePlayback"
           >
-            {{ isVoicePlaying ? 'Pause' : 'Play' }}
+            {{ isVoicePlaying ? 'Пауза' : 'Воспроизвести' }}
           </button>
           <span class="text-xs" :class="darkTheme ? 'text-[#B9C4CE]' : 'text-[#4d4d4d]'">
-            {{ formattedDuration || 'Voice' }}
+            {{ formattedDuration || 'Голосовое' }}
           </span>
         </div>
         <audio
@@ -94,11 +99,24 @@ function onVoicePause() {
           :src="message.mediaUrl"
           alt="media"
           class="max-w-[260px] max-h-[260px] rounded-[8px] object-cover"
+          @load="onMediaLoaded"
         >
 
-        <video v-else-if="isVideo" :src="message.mediaUrl" controls class="max-w-[260px] max-h-[260px] rounded-[8px]" />
+        <video
+          v-else-if="isVideo"
+          :src="message.mediaUrl"
+          controls
+          class="max-w-[260px] max-h-[260px] rounded-[8px]"
+          @loadedmetadata="onMediaLoaded"
+        />
 
-        <audio v-else-if="isAudioFile" :src="message.mediaUrl" controls class="max-w-[260px]" />
+        <audio
+          v-else-if="isAudioFile"
+          :src="message.mediaUrl"
+          controls
+          class="max-w-[260px]"
+          @loadedmetadata="onMediaLoaded"
+        />
 
         <a
           v-else
@@ -108,7 +126,7 @@ function onVoicePause() {
           class="px-3 py-2 rounded-[8px] text-sm underline"
           :class="darkTheme ? 'bg-[#182533] text-white' : 'bg-white text-black'"
         >
-          {{ message.mediaFileName || 'Open file' }}
+          {{ message.mediaFileName || 'Открыть файл' }}
         </a>
       </div>
 

@@ -10,6 +10,8 @@ export const useChatStore = defineStore('chat', () => {
   const chats = ref([])
   const currentUser = ref(null)
   const usersById = ref({})
+  const usersFetchedAt = ref(0)
+  const chatsFetchedAt = ref(0)
 
   function messagePreviewByType(type, text) {
     const normalizedType = Number(type ?? 0)
@@ -31,11 +33,11 @@ export const useChatStore = defineStore('chat', () => {
       const chatId = c.chatId ?? c.ChatId
       const isGroup = c.isGroup ?? c.IsGroup
       const name = c.name ?? c.Name
+      const participantIds = c.participantUserIds ?? c.ParticipantUserIds ?? []
 
       let displayName = name || 'Без названия'
 
       if (!isGroup) {
-        const participantIds = c.participantUserIds ?? c.ParticipantUserIds ?? []
         const otherUserId = participantIds.find((id) => normalizeId(id) !== normalizedCurrentId)
 
         if (otherUserId) {
@@ -60,32 +62,95 @@ export const useChatStore = defineStore('chat', () => {
         lastMessageSentAt: c.lastMessageSentAt ?? c.LastMessageSentAt ?? null,
         lastMessageSenderUserId: c.lastMessageSenderUserId ?? c.LastMessageSenderUserId ?? null,
         lastMessageType: c.lastMessageType ?? c.LastMessageType ?? null,
+        participantUserIds: participantIds,
         isGroup,
       }
     })
   }
 
-  async function loadChats() {
+  async function ensureUsers(forceRefresh = false) {
+    const now = Date.now()
+    const hasUsers = Object.keys(usersById.value).length > 0
+    const isFresh = now - usersFetchedAt.value < 30_000
+
+    if (!forceRefresh && hasUsers && isFresh) {
+      return Object.values(usersById.value)
+    }
+
+    const users = await messengerApi.getUsers()
+    usersById.value = users.reduce((acc, user) => {
+      acc[normalizeId(user.userId)] = user
+      return acc
+    }, {})
+    usersFetchedAt.value = now
+    return users
+  }
+
+  async function loadChats(options = {}) {
+    const {
+      forceUsersRefresh = false,
+      forceChatsRefresh = false,
+    } = options
+
     try {
       currentUser.value = messengerApi.getCurrentUser()
       if (!currentUser.value) {
         chats.value = []
         usersById.value = {}
+        usersFetchedAt.value = 0
+        chatsFetchedAt.value = 0
         return
       }
 
       const currentUserId = currentUser.value.userId
-      const [backendChats, allUsers] = await Promise.all([
-        messengerApi.getChatsByUser(currentUserId),
-        messengerApi.getUsers(),
-      ])
+      const now = Date.now()
+      const shouldReuseChats = !forceChatsRefresh && chats.value.length > 0 && now - chatsFetchedAt.value < 3_000
 
-      usersById.value = allUsers.reduce((acc, user) => {
-        acc[normalizeId(user.userId)] = user
-        return acc
-      }, {})
+      if (shouldReuseChats) {
+        return
+      }
 
-      chats.value = mapChats(backendChats, allUsers, currentUserId)
+      const backendChats = await messengerApi.getChatsByUser(currentUserId)
+      chatsFetchedAt.value = now
+
+      // Render chat list instantly using cached users (if available).
+      const cachedUsers = Object.values(usersById.value)
+      chats.value = mapChats(backendChats, cachedUsers, currentUserId)
+
+      // Hydrate user names in background so UI is not blocked by /api/users.
+      ensureUsers(forceUsersRefresh)
+        .then((allUsers) => {
+          if (!currentUser.value || normalizeId(currentUser.value.userId) !== normalizeId(currentUserId)) {
+            return
+          }
+
+          const mappedWithUsers = mapChats(backendChats, allUsers, currentUserId)
+          const liveById = new Map(chats.value.map((chat) => [normalizeId(chat.id), chat]))
+
+          chats.value = mappedWithUsers.map((mappedChat) => {
+            const liveChat = liveById.get(normalizeId(mappedChat.id))
+            if (!liveChat) return mappedChat
+
+            const liveTs = liveChat.lastMessageSentAt ? new Date(liveChat.lastMessageSentAt).getTime() : 0
+            const mappedTs = mappedChat.lastMessageSentAt ? new Date(mappedChat.lastMessageSentAt).getTime() : 0
+            const shouldKeepLivePreview = liveTs >= mappedTs && (liveChat.lastMessage || '').trim().length > 0
+
+            if (!shouldKeepLivePreview) {
+              return mappedChat
+            }
+
+            return {
+              ...mappedChat,
+              lastMessage: liveChat.lastMessage,
+              lastMessageSentAt: liveChat.lastMessageSentAt,
+              lastMessageSenderUserId: liveChat.lastMessageSenderUserId,
+              lastMessageType: liveChat.lastMessageType,
+            }
+          })
+        })
+        .catch((e) => {
+          console.error('Failed to hydrate users for chats:', e)
+        })
     } catch (e) {
       console.error('Failed to load chats from backend:', e)
     }
@@ -135,5 +200,6 @@ export const useChatStore = defineStore('chat', () => {
     updatePreviewFromMessage,
     getChatById,
     getUserById,
+    ensureUsers,
   }
 })
