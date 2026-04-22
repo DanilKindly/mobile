@@ -89,6 +89,10 @@ function handlePageHide() {
   messengerApi.setPresence(currentUser.userId, false).catch(() => {})
 }
 
+function handlePushBootstrapRequest() {
+  syncPushBootstrap()
+}
+
 watch(
   () => route.path,
   () => {
@@ -102,6 +106,7 @@ onMounted(() => {
   window.addEventListener('focus', handleWindowFocus)
   window.addEventListener('blur', handleWindowBlur)
   window.addEventListener('pagehide', handlePageHide)
+  window.addEventListener('kindly-push-bootstrap-request', handlePushBootstrapRequest)
   syncGlobalPresence()
   syncPushBootstrap()
 })
@@ -112,6 +117,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('focus', handleWindowFocus)
   window.removeEventListener('blur', handleWindowBlur)
   window.removeEventListener('pagehide', handlePageHide)
+  window.removeEventListener('kindly-push-bootstrap-request', handlePushBootstrapRequest)
 })
 </script>
 

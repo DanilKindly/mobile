@@ -1,4 +1,4 @@
-import { bootstrapWebPush, ensureWebPushSubscription, hasActiveWebPushSubscription } from './webPushService'
+import { hasActiveWebPushSubscription } from './webPushService'
 
 function canUseNotifications() {
   return typeof window !== 'undefined' && 'Notification' in window
@@ -50,27 +50,23 @@ export async function requestNotificationPermissionOnUserGesture() {
   const status = await getNotificationPermissionState()
   if (status === 'granted' || status === 'denied') {
     if (status === 'granted') {
-      await ensureWebPushSubscription()
+      window.dispatchEvent(new Event('kindly-push-bootstrap-request'))
     }
     return status
   }
   const result = await ensureNotificationPermissionForIncoming()
   if (result === 'granted') {
-    await ensureWebPushSubscription()
+    window.dispatchEvent(new Event('kindly-push-bootstrap-request'))
   }
   return result
 }
 
 export async function setupNotificationPermissionBootstrap() {
   if (!canUseNotifications()) return
-  await bootstrapWebPush()
   if (bootstrapListenerBound) return
 
   const status = await getNotificationPermissionState()
   if (status === 'granted' || status === 'denied') {
-    if (status === 'granted') {
-      await ensureWebPushSubscription()
-    }
     return
   }
 

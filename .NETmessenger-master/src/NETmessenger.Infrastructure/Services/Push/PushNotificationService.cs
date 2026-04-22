@@ -138,6 +138,57 @@ public sealed class PushNotificationService : IPushNotificationService
             subscription.LastErrorCode);
     }
 
+    public async Task<PushTestSelfResultDto> SendTestPushToUserAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        if (userId == Guid.Empty)
+        {
+            return new PushTestSelfResultDto(false, 0, 0, "unauthorized", "User is not authorized.");
+        }
+
+        if (!CanSendPush())
+        {
+            LogPushSuppression("push_not_configured", "push-test-self", null, new[] { userId }, 0);
+            return new PushTestSelfResultDto(false, 0, 0, "push_not_configured", "Push is not configured on server.");
+        }
+
+        var subscriptions = await _dbContext.PushSubscriptions
+            .Where(x => x.IsActive && x.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+        LogPushTrigger("push-test-self", null, new[] { userId }, subscriptions.Count);
+        if (subscriptions.Count == 0)
+        {
+            LogPushSuppression("no_active_subscriptions", "push-test-self", null, new[] { userId }, 0);
+            return new PushTestSelfResultDto(false, 0, 0, "no_active_subscriptions", "No active push subscription for current user.");
+        }
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            title = "Kindly Messenger",
+            body = "Test push message",
+            icon = "/icon-192.png",
+            badge = "/icon-192.png",
+            tag = $"push-test-{userId:D}",
+            data = new
+            {
+                url = "/chats",
+                chatId = (Guid?)null,
+                messageId = (Guid?)null,
+            }
+        });
+
+        var (attempted, successful) = await SendPayloadToSubscriptionsAsync(
+            subscriptions,
+            payload,
+            "push-test-self",
+            null,
+            cancellationToken);
+
+        return successful > 0
+            ? new PushTestSelfResultDto(true, attempted, successful, null, null)
+            : new PushTestSelfResultDto(false, attempted, successful, "push_send_failed", "Failed to deliver test push to active subscriptions.");
+    }
+
     public Task TrackClientSubscribeFailureAsync(Guid userId, PushSubscribeFailureDto dto, CancellationToken cancellationToken)
     {
         if (userId == Guid.Empty)
@@ -158,8 +209,15 @@ public sealed class PushNotificationService : IPushNotificationService
 
     public async Task NotifyIncomingMessageAsync(GetMessageDto message, CancellationToken cancellationToken)
     {
-        if (!CanSendPush() || message is null)
+        if (message is null)
         {
+            LogPushSuppression("null_message", "unknown", null, Array.Empty<Guid>(), 0);
+            return;
+        }
+
+        if (!CanSendPush())
+        {
+            LogPushSuppression("push_not_configured", message.MessageId.ToString("D"), message.ChatId, Array.Empty<Guid>(), 0);
             return;
         }
 
@@ -183,6 +241,7 @@ public sealed class PushNotificationService : IPushNotificationService
 
             if (chatData is null)
             {
+                LogPushSuppression("chat_not_found", message.MessageId.ToString("D"), message.ChatId, Array.Empty<Guid>(), 0);
                 return;
             }
 
@@ -194,6 +253,7 @@ public sealed class PushNotificationService : IPushNotificationService
 
             if (recipientIds.Length == 0)
             {
+                LogPushSuppression("no_recipients", message.MessageId.ToString("D"), message.ChatId, recipientIds, 0);
                 return;
             }
 
@@ -201,17 +261,19 @@ public sealed class PushNotificationService : IPushNotificationService
                 .Where(x => x.IsActive && recipientIds.Contains(x.UserId))
                 .ToListAsync(cancellationToken);
 
+            LogPushTrigger(message.MessageId.ToString("D"), message.ChatId, recipientIds, subscriptions.Count);
             if (subscriptions.Count == 0)
             {
+                LogPushSuppression("no_active_subscriptions", message.MessageId.ToString("D"), message.ChatId, recipientIds, 0);
                 return;
             }
 
             var senderDisplayName = chatData.Participants
                 .FirstOrDefault(p => p.Id == message.SenderUserId)
-                ?.Username ?? "Новое сообщение";
+                ?.Username ?? "New message";
 
             var title = chatData.IsGroup
-                ? (string.IsNullOrWhiteSpace(chatData.Name) ? "Новое сообщение в группе" : chatData.Name.Trim())
+                ? (string.IsNullOrWhiteSpace(chatData.Name) ? "New group message" : chatData.Name.Trim())
                 : senderDisplayName;
 
             var body = BuildBody(message);
@@ -230,80 +292,112 @@ public sealed class PushNotificationService : IPushNotificationService
                 }
             });
 
-            var client = new WebPushClient();
-            var vapidDetails = new VapidDetails(_vapidSubject, _vapidPublicKey!, _vapidPrivateKey!);
-            var now = DateTime.UtcNow;
-            var changed = false;
-
-            foreach (var subscription in subscriptions)
-            {
-                try
-                {
-                    await client.SendNotificationAsync(
-                        new WebPush.PushSubscription(subscription.Endpoint, subscription.P256dh, subscription.Auth),
-                        payload,
-                        vapidDetails,
-                        cancellationToken);
-
-                    subscription.LastSuccessAt = now;
-                    subscription.UpdatedAt = now;
-                    subscription.LastFailureAt = null;
-                    subscription.FailureCount = 0;
-                    subscription.IsActive = true;
-                    subscription.LastErrorCode = null;
-                    subscription.LastErrorMessage = null;
-                    changed = true;
-
-                    _logger.LogInformation(
-                        "Push delivered. messageId={MessageId} recipientUserId={RecipientUserId} subscriptionId={SubscriptionId} endpoint={Endpoint}",
-                        message.MessageId,
-                        subscription.UserId,
-                        subscription.Id,
-                        MaskEndpoint(subscription.Endpoint));
-                }
-                catch (WebPushException ex) when (ex.StatusCode is HttpStatusCode.Gone or HttpStatusCode.NotFound)
-                {
-                    subscription.IsActive = false;
-                    subscription.LastFailureAt = now;
-                    subscription.UpdatedAt = now;
-                    subscription.FailureCount += 1;
-                    subscription.LastErrorCode = $"webpush:{(int)ex.StatusCode}";
-                    subscription.LastErrorMessage = NormalizeOptional(ex.Message, 2000);
-                    changed = true;
-
-                    _logger.LogWarning(
-                        "Push subscription invalidated. messageId={MessageId} recipientUserId={RecipientUserId} subscriptionId={SubscriptionId} status={StatusCode}",
-                        message.MessageId,
-                        subscription.UserId,
-                        subscription.Id,
-                        ex.StatusCode);
-                }
-                catch (Exception ex)
-                {
-                    subscription.LastFailureAt = now;
-                    subscription.UpdatedAt = now;
-                    subscription.FailureCount += 1;
-                    subscription.LastErrorCode = "push_send_failed";
-                    subscription.LastErrorMessage = NormalizeOptional(ex.Message, 2000);
-                    changed = true;
-                    _logger.LogWarning(
-                        ex,
-                        "Failed to deliver push. messageId={MessageId} recipientUserId={RecipientUserId} subscriptionId={SubscriptionId}",
-                        message.MessageId,
-                        subscription.UserId,
-                        subscription.Id);
-                }
-            }
-
-            if (changed)
-            {
-                await _dbContext.SaveChangesAsync(cancellationToken);
-            }
+            await SendPayloadToSubscriptionsAsync(
+                subscriptions,
+                payload,
+                message.MessageId.ToString("D"),
+                message.ChatId,
+                cancellationToken);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Push notification send pipeline failed for message {MessageId}", message.MessageId);
         }
+    }
+
+    private async Task<(int Attempted, int Successful)> SendPayloadToSubscriptionsAsync(
+        IReadOnlyCollection<PushSubscriptionEntity> subscriptions,
+        string payload,
+        string messageIdForLog,
+        Guid? chatIdForLog,
+        CancellationToken cancellationToken)
+    {
+        if (subscriptions.Count == 0)
+        {
+            return (0, 0);
+        }
+
+        var client = new WebPushClient();
+        var vapidDetails = new VapidDetails(_vapidSubject, _vapidPublicKey!, _vapidPrivateKey!);
+        var now = DateTime.UtcNow;
+        var changed = false;
+        var successful = 0;
+
+        foreach (var subscription in subscriptions)
+        {
+            try
+            {
+                await client.SendNotificationAsync(
+                    new WebPush.PushSubscription(subscription.Endpoint, subscription.P256dh, subscription.Auth),
+                    payload,
+                    vapidDetails,
+                    cancellationToken);
+
+                subscription.LastSuccessAt = now;
+                subscription.UpdatedAt = now;
+                subscription.LastFailureAt = null;
+                subscription.FailureCount = 0;
+                subscription.IsActive = true;
+                subscription.LastErrorCode = null;
+                subscription.LastErrorMessage = null;
+                changed = true;
+                successful += 1;
+
+                _logger.LogInformation(
+                    "PushSend messageId={MessageId} chatId={ChatId} recipientUserId={RecipientUserId} subscriptionId={SubscriptionId} endpoint={Endpoint} success=true statusCode=201 errorCode=",
+                    messageIdForLog,
+                    chatIdForLog,
+                    subscription.UserId,
+                    subscription.Id,
+                    MaskEndpoint(subscription.Endpoint));
+            }
+            catch (WebPushException ex) when (ex.StatusCode is HttpStatusCode.Gone or HttpStatusCode.NotFound)
+            {
+                subscription.IsActive = false;
+                subscription.LastFailureAt = now;
+                subscription.UpdatedAt = now;
+                subscription.FailureCount += 1;
+                subscription.LastErrorCode = $"webpush:{(int)ex.StatusCode}";
+                subscription.LastErrorMessage = NormalizeOptional(ex.Message, 2000);
+                changed = true;
+
+                _logger.LogWarning(
+                    "PushSend messageId={MessageId} chatId={ChatId} recipientUserId={RecipientUserId} subscriptionId={SubscriptionId} endpoint={Endpoint} success=false statusCode={StatusCode} errorCode={ErrorCode}",
+                    messageIdForLog,
+                    chatIdForLog,
+                    subscription.UserId,
+                    subscription.Id,
+                    MaskEndpoint(subscription.Endpoint),
+                    (int)ex.StatusCode,
+                    subscription.LastErrorCode);
+            }
+            catch (Exception ex)
+            {
+                subscription.LastFailureAt = now;
+                subscription.UpdatedAt = now;
+                subscription.FailureCount += 1;
+                subscription.LastErrorCode = "push_send_failed";
+                subscription.LastErrorMessage = NormalizeOptional(ex.Message, 2000);
+                changed = true;
+
+                _logger.LogWarning(
+                    ex,
+                    "PushSend messageId={MessageId} chatId={ChatId} recipientUserId={RecipientUserId} subscriptionId={SubscriptionId} endpoint={Endpoint} success=false statusCode=0 errorCode={ErrorCode}",
+                    messageIdForLog,
+                    chatIdForLog,
+                    subscription.UserId,
+                    subscription.Id,
+                    MaskEndpoint(subscription.Endpoint),
+                    subscription.LastErrorCode);
+            }
+        }
+
+        if (changed)
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return (subscriptions.Count, successful);
     }
 
     private bool CanSendPush()
@@ -315,9 +409,9 @@ public sealed class PushNotificationService : IPushNotificationService
     {
         return message.Type switch
         {
-            MessageType.Voice => "Голосовое сообщение",
-            MessageType.Media => "Медиафайл",
-            _ => string.IsNullOrWhiteSpace(message.Text) ? "Новое сообщение" : message.Text.Trim(),
+            MessageType.Voice => "Voice message",
+            MessageType.Media => "Media file",
+            _ => string.IsNullOrWhiteSpace(message.Text) ? "New message" : message.Text.Trim(),
         };
     }
 
@@ -357,4 +451,31 @@ public sealed class PushNotificationService : IPushNotificationService
 
         return $"{value[..14]}...{value[^8..]}";
     }
+
+    private void LogPushTrigger(string messageId, Guid? chatId, IReadOnlyCollection<Guid> recipientIds, int subscriptionsCount)
+    {
+        _logger.LogInformation(
+            "PushTrigger messageId={MessageId} chatId={ChatId} recipientIds={RecipientIds} subscriptionsCount={SubscriptionsCount}",
+            messageId,
+            chatId,
+            string.Join(",", recipientIds.Select(id => id.ToString("D"))),
+            subscriptionsCount);
+    }
+
+    private void LogPushSuppression(
+        string reason,
+        string messageId,
+        Guid? chatId,
+        IReadOnlyCollection<Guid> recipientIds,
+        int subscriptionsCount)
+    {
+        _logger.LogInformation(
+            "PushSuppression send=false reason={Reason} messageId={MessageId} chatId={ChatId} recipientIds={RecipientIds} subscriptionsCount={SubscriptionsCount}",
+            reason,
+            messageId,
+            chatId,
+            string.Join(",", recipientIds.Select(id => id.ToString("D"))),
+            subscriptionsCount);
+    }
 }
+

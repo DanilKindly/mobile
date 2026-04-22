@@ -57,6 +57,19 @@ public class PushController(IPushNotificationService pushNotificationService) : 
     }
 
     [Authorize]
+    [HttpPost("test-self")]
+    public async Task<ActionResult<PushTestSelfResultDto>> TestSelf(CancellationToken cancellationToken)
+    {
+        if (!TryGetAuthorizedUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await pushNotificationService.SendTestPushToUserAsync(userId, cancellationToken);
+        return Ok(result);
+    }
+
+    [Authorize]
     [HttpPost("debug/subscribe-failure")]
     public async Task<IActionResult> DebugSubscribeFailure(
         [FromBody] PushSubscribeFailureDto dto,

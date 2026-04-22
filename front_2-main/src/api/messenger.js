@@ -8,6 +8,7 @@ const SIGNALR_URL = (import.meta.env.VITE_SIGNALR_URL || '').trim() || `${API_BA
 const CURRENT_USER_KEY = 'ois_current_user'
 const TOKEN_KEY = 'token'
 const REALTIME_CURSOR_KEY = 'ois_realtime_cursor'
+const PUSH_FINGERPRINT_STORAGE_KEY = 'ois_push_sub_fingerprint'
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -344,6 +345,11 @@ export const messengerApi = {
     return response.data ?? null
   },
 
+  async sendPushTestSelf() {
+    const response = await api.post('/api/push/test-self')
+    return response.data ?? null
+  },
+
   async reportPushSubscribeFailure(payload) {
     await api.post('/api/push/debug/subscribe-failure', payload)
   },
@@ -409,6 +415,7 @@ export const messengerApi = {
     localStorage.removeItem(CURRENT_USER_KEY)
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(REALTIME_CURSOR_KEY)
+    localStorage.removeItem(PUSH_FINGERPRINT_STORAGE_KEY)
   },
 
   async getOrCreateChatWithUserByLogin(currentUserId, peerLogin) {

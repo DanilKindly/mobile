@@ -23,6 +23,7 @@ const chatStore = useChatStore()
 const messageStore = useMessageStore()
 const pushStore = usePushStore()
 const themeStore = useThemeStore()
+const pushDebugEnabled = import.meta.env.VITE_PUSH_DEBUG_UI === '1'
 
 const currentUser = ref(null)
 const chatId = ref(null)
@@ -546,6 +547,7 @@ async function handleSendMedia(file) {
       :push-requires-home-screen="pushStore.requiresHomeScreen"
       :push-endpoint-masked="pushStore.endpointMasked"
       :push-last-error-code="pushStore.lastErrorCode"
+      :show-push-debug="pushDebugEnabled"
       @select-chat="handleSelectChat"
       @logout="handleLogout"
       @create-chat="handleCreateChat"

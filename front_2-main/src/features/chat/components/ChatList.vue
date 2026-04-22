@@ -38,6 +38,10 @@ const props = defineProps({
     type: String,
     default: null,
   },
+  showPushDebug: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits(['select-chat', 'logout', 'create-chat', 'reconnect-push'])
@@ -131,6 +135,7 @@ function pushStatusLabel(value) {
       </div>
 
       <div
+        v-if="showPushDebug"
         class="mt-3 rounded-lg px-3 py-2 border"
         :class="darkTheme ? 'border-[#263748] bg-[#141f2b]' : 'border-gray-200 bg-gray-50'"
       >

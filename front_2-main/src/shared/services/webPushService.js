@@ -2,6 +2,7 @@ import messengerApi from '@/api/messenger'
 
 let serviceWorkerRegistrationPromise = null
 let syncInFlight = null
+const PUSH_FINGERPRINT_STORAGE_KEY = 'ois_push_sub_fingerprint'
 
 export const PUSH_STATUS = {
   UNSUPPORTED: 'unsupported',
@@ -53,6 +54,39 @@ function extractKey(subscription, keyName) {
   const rawKey = subscription.getKey?.(keyName)
   if (!rawKey) return null
   return toBase64UrlFromArrayBuffer(rawKey)
+}
+
+function buildSubscriptionFingerprint(endpoint, p256dh, auth) {
+  return `${endpoint}|${p256dh}|${auth}`
+}
+
+function readSyncedFingerprint() {
+  try {
+    const raw = localStorage.getItem(PUSH_FINGERPRINT_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    if (typeof parsed.userId !== 'string' || typeof parsed.fingerprint !== 'string') return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeSyncedFingerprint(userId, fingerprint) {
+  try {
+    localStorage.setItem(PUSH_FINGERPRINT_STORAGE_KEY, JSON.stringify({ userId: String(userId), fingerprint }))
+  } catch {
+    // localStorage may be unavailable in private mode; ignore and continue.
+  }
+}
+
+function clearSyncedFingerprint() {
+  try {
+    localStorage.removeItem(PUSH_FINGERPRINT_STORAGE_KEY)
+  } catch {
+    // ignore
+  }
 }
 
 async function ensureServiceWorkerRegistration() {
@@ -112,7 +146,7 @@ async function reportSubscribeFailure(error) {
   }
 }
 
-async function subscribeAndUpsert(registration) {
+async function subscribeAndUpsert(registration, currentUserId) {
   let subscription = await registration.pushManager.getSubscription()
 
   if (!subscription) {
@@ -135,12 +169,19 @@ async function subscribeAndUpsert(registration) {
     return { status: PUSH_STATUS.SUBSCRIBE_FAILED, error: new Error('Invalid push subscription keys') }
   }
 
+  const fingerprint = buildSubscriptionFingerprint(endpoint, p256dh, auth)
+  const synced = readSyncedFingerprint()
+  if (synced?.userId === String(currentUserId) && synced?.fingerprint === fingerprint) {
+    return { status: PUSH_STATUS.SUBSCRIBED, endpoint, skippedUpsert: true }
+  }
+
   await messengerApi.upsertPushSubscription({
     endpoint,
     p256dh,
     auth,
     userAgent: navigator.userAgent,
   })
+  writeSyncedFingerprint(currentUserId, fingerprint)
 
   return { status: PUSH_STATUS.SUBSCRIBED, endpoint }
 }
@@ -166,7 +207,7 @@ export async function ensureWebPushSubscription() {
     try {
       const registration = await ensureServiceWorkerRegistration()
       if (!registration) return { status: PUSH_STATUS.UNSUPPORTED }
-      return await subscribeAndUpsert(registration)
+      return await subscribeAndUpsert(registration, currentUser.userId)
     } catch (error) {
       console.error('ensureWebPushSubscription failed:', error)
       await reportSubscribeFailure(error)
@@ -208,7 +249,12 @@ export async function forceResubscribe() {
       await existing.unsubscribe()
     }
 
-    return await subscribeAndUpsert(registration)
+    clearSyncedFingerprint()
+    const result = await subscribeAndUpsert(registration, currentUser.userId)
+    if (result?.status !== PUSH_STATUS.SUBSCRIBED) {
+      clearSyncedFingerprint()
+    }
+    return result
   } catch (error) {
     console.error('forceResubscribe failed:', error)
     await reportSubscribeFailure(error)
