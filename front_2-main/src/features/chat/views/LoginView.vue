@@ -112,6 +112,9 @@ async function submitRegister() {
 <template>
   <div class="h-screen flex items-center justify-center" :class="themeStore.darkTheme ? 'bg-[#0a0a0a]' : 'bg-gray-100'">
     <div class="w-full max-w-md p-8 rounded-2xl shadow-2xl" :class="themeStore.darkTheme ? 'bg-[#1a1a1a]' : 'bg-white'">
+      <div class="flex justify-center mb-4">
+        <img src="/logo-mark.png" alt="Kindly Messenger" class="w-20 h-20 rounded-2xl object-contain">
+      </div>
       <h1 class="text-3xl font-bold text-center mb-2" :class="themeStore.darkTheme ? 'text-white' : 'text-gray-800'">
         Мессенджер
       </h1>
