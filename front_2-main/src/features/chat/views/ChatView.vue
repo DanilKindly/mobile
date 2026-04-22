@@ -448,11 +448,12 @@ async function openChat(targetChatId) {
   traceOpenFlow('open start', { chatId: targetChatId, requestId })
   chatId.value = targetChatId
   chatStore.resetUnreadCount(targetChatId)
-  messageStore.setActiveChat(targetChatId)
+  messageStore.setActiveChat(null)
   setImmediateChatName(targetChatId)
   stickToBottom.value = true
   openingPhase.value = 'hydrating'
   userStartedOlderHistoryScroll = false
+  drainHydratingRealtime(targetChatId)
 
   try {
     await messageStore.loadLatestMessagesByChatId(targetChatId, currentUserId, 40)
@@ -479,6 +480,7 @@ async function openChat(targetChatId) {
       })
     }
 
+    messageStore.setActiveChat(targetChatId)
     await nextTick()
     pinToLatestNow()
     traceOpenFlow('anchor applied', { chatId: targetChatId, requestId })
@@ -698,7 +700,6 @@ async function handleSendMedia(file) {
       <ChatHeader :user-name="chatName || 'Собеседник'" :user-state="peerStatusText" :dark-theme="themeStore.darkTheme" :show-back="true" />
 
       <main
-        :key="chatId || routeChatId"
         ref="messagesContainer"
         class="messages-container flex-1 px-4 sm:px-6 lg:px-8 py-3 overflow-y-auto"
         :class="themeStore.darkTheme ? 'bg-[#0E1621] dark-theme' : 'bg-white'"
