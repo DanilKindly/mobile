@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NETmessenger.Application.Abstractions.Chats;
+using NETmessenger.Application.Abstractions.Security;
 using NETmessenger.Application.Exceptions;
 using NETmessenger.Contracts.Chats;
 using NETmessenger.Web.Security;
@@ -10,7 +11,10 @@ namespace NETmessenger.Web.Controllers.Chats;
 [ApiController]
 [Authorize]
 [Route("api/chats")]
-public class ChatsController(IChatService chatService) : ControllerBase
+public class ChatsController(
+    IChatService chatService,
+    ISecurityAuditService auditService,
+    IAbuseGuard abuseGuard) : ControllerBase
 {
     [HttpPost]
     public async Task<ActionResult<GetChatDto>> Create([FromBody] CreateChatDto dto, CancellationToken cancellationToken)
@@ -18,8 +22,15 @@ public class ChatsController(IChatService chatService) : ControllerBase
         try
         {
             var currentUserId = User.GetRequiredUserId();
+            if (await abuseGuard.IsBlockedAsync(currentUserId, cancellationToken))
+            {
+                await AuditAsync("blocked_user_create_chat", "denied", currentUserId, "chat", null, "user is blocked", cancellationToken);
+                return Forbid();
+            }
+
             if (!dto.ParticipantUserIds.Contains(currentUserId))
             {
+                await AuditAsync("chat_create_forbidden", "denied", currentUserId, "chat", null, "current user missing from participants", cancellationToken);
                 return Forbid();
             }
 
@@ -46,7 +57,13 @@ public class ChatsController(IChatService chatService) : ControllerBase
             return NotFound();
         }
 
-        return chat.ParticipantUserIds.Contains(currentUserId) ? Ok(chat) : Forbid();
+        if (!chat.ParticipantUserIds.Contains(currentUserId))
+        {
+            await AuditAsync("chat_read_forbidden", "denied", currentUserId, "chat", chatId.ToString("D"), "not a participant", cancellationToken);
+            return Forbid();
+        }
+
+        return Ok(chat);
     }
 
     [HttpGet("by-user/{userId:guid}")]
@@ -57,6 +74,7 @@ public class ChatsController(IChatService chatService) : ControllerBase
             var currentUserId = User.GetRequiredUserId();
             if (currentUserId != userId)
             {
+                await AuditAsync("chat_list_forbidden", "denied", currentUserId, "users", userId.ToString("D"), "cannot list another user's chats", cancellationToken);
                 return Forbid();
             }
 
@@ -67,5 +85,27 @@ public class ChatsController(IChatService chatService) : ControllerBase
         {
             return NotFound();
         }
+    }
+
+    private Task AuditAsync(
+        string eventType,
+        string outcome,
+        Guid? userId,
+        string? resourceType,
+        string? resourceId,
+        string? reason,
+        CancellationToken cancellationToken)
+    {
+        return auditService.RecordAsync(new SecurityAuditEventInput(
+            eventType,
+            outcome,
+            outcome == "success" ? "info" : "warning",
+            userId,
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            Request.Headers.UserAgent.ToString(),
+            resourceType,
+            resourceId,
+            reason),
+            cancellationToken);
     }
 }

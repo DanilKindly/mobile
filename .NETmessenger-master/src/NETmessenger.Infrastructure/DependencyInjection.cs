@@ -4,12 +4,14 @@ using Microsoft.Extensions.DependencyInjection;
 using NETmessenger.Application.Abstractions.Chats;
 using NETmessenger.Application.Abstractions.Files;
 using NETmessenger.Application.Abstractions.Messages;
+using NETmessenger.Application.Abstractions.Security;
 using NETmessenger.Application.Abstractions.Users;
 using NETmessenger.Infrastructure.Persistence;
 using NETmessenger.Infrastructure.Services.Chats;
 using NETmessenger.Infrastructure.Services.Files;
 using NETmessenger.Infrastructure.Services.Messages;
 using NETmessenger.Infrastructure.Services.Push;
+using NETmessenger.Infrastructure.Services.Security;
 using NETmessenger.Infrastructure.Services.Users;
 using NETmessenger.Infrastructure.Services;
 
@@ -42,6 +44,8 @@ public static class DependencyInjection
         services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IPushNotificationService, PushNotificationService>();
+        services.AddScoped<ISecurityAuditService, SecurityAuditService>();
+        services.AddScoped<IAbuseGuard, AbuseGuard>();
 
         return services;
     }
