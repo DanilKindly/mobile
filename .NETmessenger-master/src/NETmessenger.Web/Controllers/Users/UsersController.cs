@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using NETmessenger.Application.Abstractions.Security;
 using NETmessenger.Application.Abstractions.Users;
 using NETmessenger.Application.Exceptions;
 using NETmessenger.Contracts.Users;
@@ -9,27 +11,67 @@ namespace NETmessenger.Web.Controllers.Users;
 
 [ApiController]
 [Route("api/users")]
-public class UsersController(IUserService userService, IConfiguration configuration) : ControllerBase
+public class UsersController(
+    IUserService userService,
+    ISecurityAuditService auditService,
+    IAbuseGuard abuseGuard,
+    IConfiguration configuration) : ControllerBase
 {
     private readonly IConfiguration _configuration = configuration;
 
     [HttpGet]
     [Authorize]
-    public async Task<ActionResult<IReadOnlyCollection<GetUserDto>>> GetAll(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
     {
-        var users = await userService.GetAllAsync(cancellationToken);
+        await AuditAsync("user_directory_list_denied", "denied", User.TryGetUserId(out var userId) ? userId : null, "users", "all", "mass user directory is disabled", cancellationToken);
+        return StatusCode(StatusCodes.Status410Gone, new { error = "User directory is disabled." });
+    }
+
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<ActionResult<CurrentUserDto>> GetMe(CancellationToken cancellationToken)
+    {
+        var currentUserId = User.GetRequiredUserId();
+        var current = await userService.GetCurrentAsync(currentUserId, cancellationToken);
+        return current is null ? NotFound() : Ok(current);
+    }
+
+    [HttpGet("participants")]
+    [Authorize]
+    public async Task<ActionResult<IReadOnlyCollection<GetUserDto>>> GetVisibleParticipants(
+        [FromQuery] string ids,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = User.GetRequiredUserId();
+        if (await abuseGuard.IsBlockedAsync(currentUserId, cancellationToken))
+        {
+            await AuditAsync("blocked_user_request", "denied", currentUserId, "users", "participants", "user is blocked", cancellationToken);
+            return Forbid();
+        }
+
+        var requestedIds = ParseGuidList(ids);
+        var users = await userService.GetVisibleParticipantsAsync(currentUserId, requestedIds, cancellationToken);
         return Ok(users);
     }
 
     [HttpGet("search")]
     [Authorize]
-    public async Task<ActionResult<IReadOnlyCollection<GetUserDto>>> SearchByLogin(
+    [EnableRateLimiting("user-search")]
+    public async Task<ActionResult<IReadOnlyCollection<UserSearchResultDto>>> SearchByLogin(
         [FromQuery] string login,
         CancellationToken cancellationToken)
     {
         try
         {
-            var users = await userService.SearchByLoginAsync(login, cancellationToken);
+            var currentUserId = User.GetRequiredUserId();
+            if (await abuseGuard.IsBlockedAsync(currentUserId, cancellationToken))
+            {
+                await AuditAsync("blocked_user_search", "denied", currentUserId, "users", "search", "user is blocked", cancellationToken);
+                return Forbid();
+            }
+
+            var users = await userService.SearchByLoginAsync(login, currentUserId, cancellationToken);
+            await AuditAsync("user_search", "success", currentUserId, "users", "search", $"results={users.Count}", cancellationToken);
             return Ok(users);
         }
         catch (DomainValidationException ex)
@@ -42,11 +84,26 @@ public class UsersController(IUserService userService, IConfiguration configurat
     [Authorize]
     public async Task<ActionResult<GetUserDto>> GetById(Guid userId, CancellationToken cancellationToken)
     {
+        var currentUserId = User.GetRequiredUserId();
+        if (currentUserId != userId)
+        {
+            var visible = await userService.GetVisibleParticipantsAsync(currentUserId, [userId], cancellationToken);
+            var visibleUser = visible.FirstOrDefault();
+            if (visibleUser is null)
+            {
+                await AuditAsync("user_read_forbidden", "denied", currentUserId, "users", userId.ToString("D"), "not shared participant", cancellationToken);
+                return Forbid();
+            }
+
+            return Ok(visibleUser);
+        }
+
         var user = await userService.GetByIdAsync(userId, cancellationToken);
         return user is null ? NotFound() : Ok(user);
     }
 
     [HttpPost("register")]
+    [EnableRateLimiting("auth-register")]
     public async Task<ActionResult<AuthResponseDto>> Register(
         [FromBody] RegisterUserDto dto,
         CancellationToken cancellationToken)
@@ -55,19 +112,23 @@ public class UsersController(IUserService userService, IConfiguration configurat
         {
             var result = await userService.RegisterAsync(dto, cancellationToken);
             AppendAuthCookie(result.Token);
+            await AuditAsync("auth_register", "success", result.UserId, "users", result.UserId.ToString("D"), null, cancellationToken);
             return Ok(result);
         }
         catch (ConflictException ex)
         {
+            await AuditAsync("auth_register", "failed", null, "users", null, "conflict", cancellationToken);
             return Conflict(new { error = ex.Message });
         }
         catch (DomainValidationException ex)
         {
+            await AuditAsync("auth_register", "failed", null, "users", null, "validation_failed", cancellationToken);
             return BadRequest(new { error = ex.Message });
         }
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("auth-login")]
     public async Task<ActionResult<AuthResponseDto>> Login(
         [FromBody] LoginUserDto dto,
         CancellationToken cancellationToken)
@@ -75,17 +136,25 @@ public class UsersController(IUserService userService, IConfiguration configurat
         try
         {
             var result = await userService.LoginAsync(dto, cancellationToken);
+            if (await abuseGuard.IsBlockedAsync(result.UserId, cancellationToken))
+            {
+                await AuditAsync("auth_login_blocked", "denied", result.UserId, "users", result.UserId.ToString("D"), "user is blocked", cancellationToken);
+                return Forbid();
+            }
 
             AppendAuthCookie(result.Token);
+            await AuditAsync("auth_login", "success", result.UserId, "users", result.UserId.ToString("D"), null, cancellationToken);
 
             return Ok(result);
         }
         catch (ResourceNotFoundException)
         {
+            await AuditAsync("auth_login", "failed", null, "users", null, "invalid_credentials", cancellationToken);
             return Unauthorized(new { error = "Invalid credentials" });
         }
         catch (DomainValidationException ex)
         {
+            await AuditAsync("auth_login", "failed", null, "users", null, "invalid_credentials", cancellationToken);
             return Unauthorized(new { error = ex.Message });
         }
     }
@@ -99,6 +168,7 @@ public class UsersController(IUserService userService, IConfiguration configurat
             var currentUserId = User.GetRequiredUserId();
             if (currentUserId != userId)
             {
+                await AuditAsync("user_update_forbidden", "denied", currentUserId, "users", userId.ToString("D"), "cannot update another user", cancellationToken);
                 return Forbid();
             }
 
@@ -133,5 +203,43 @@ public class UsersController(IUserService userService, IConfiguration configurat
             IsEssential = true,
             Expires = DateTime.UtcNow.AddHours(expirationHours)
         });
+    }
+
+    private static IReadOnlyCollection<Guid> ParseGuidList(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return Array.Empty<Guid>();
+        }
+
+        return raw
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => Guid.TryParse(x, out var id) ? id : Guid.Empty)
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .Take(100)
+            .ToArray();
+    }
+
+    private Task AuditAsync(
+        string eventType,
+        string outcome,
+        Guid? userId,
+        string? resourceType,
+        string? resourceId,
+        string? reason,
+        CancellationToken cancellationToken)
+    {
+        return auditService.RecordAsync(new SecurityAuditEventInput(
+            eventType,
+            outcome,
+            outcome == "success" ? "info" : "warning",
+            userId,
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            Request.Headers.UserAgent.ToString(),
+            resourceType,
+            resourceId,
+            reason),
+            cancellationToken);
     }
 }

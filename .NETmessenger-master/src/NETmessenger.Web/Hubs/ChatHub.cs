@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using NETmessenger.Application.Abstractions.Chats;
 using NETmessenger.Application.Abstractions.Messages;
+using NETmessenger.Application.Abstractions.Security;
 using NETmessenger.Application.Abstractions.Users;
 using NETmessenger.Contracts.Messages;
 using NETmessenger.Web.Security;
@@ -10,13 +11,25 @@ using NETmessenger.Web.Security;
 namespace NETmessenger.Web.Hubs;
 
 [Authorize]
-public class ChatHub(IMessageService messageService, IChatService chatService, IUserService userService) : Hub
+public class ChatHub(
+    IMessageService messageService,
+    IChatService chatService,
+    IUserService userService,
+    ISecurityAuditService auditService,
+    IAbuseGuard abuseGuard) : Hub
 {
     private static readonly ConcurrentDictionary<string, Guid> ConnectionToUser = new();
     private static readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>> UserConnections = new();
 
     public async Task JoinChat(Guid chatId)
     {
+        var currentUserId = Context.User!.GetRequiredUserId();
+        if (await abuseGuard.IsBlockedAsync(currentUserId, CancellationToken.None))
+        {
+            await AuditAsync("blocked_user_hub_join", "denied", currentUserId, "chat", chatId.ToString("D"), "user is blocked");
+            throw new HubException("Forbidden.");
+        }
+
         await EnsureCurrentUserCanAccessChat(chatId);
         await Groups.AddToGroupAsync(Context.ConnectionId, GetChatGroup(chatId));
     }
@@ -28,11 +41,18 @@ public class ChatHub(IMessageService messageService, IChatService chatService, I
 
     public async Task<RealtimeEventDto> SendMessage(Guid chatId, SendMessageDto dto)
     {
+        var currentUserId = Context.User!.GetRequiredUserId();
+        if (await abuseGuard.IsBlockedAsync(currentUserId, CancellationToken.None))
+        {
+            await AuditAsync("blocked_user_hub_send", "denied", currentUserId, "chat", chatId.ToString("D"), "user is blocked");
+            throw new HubException("Forbidden.");
+        }
+
         await EnsureCurrentUserCanAccessChat(chatId);
 
-        var currentUserId = Context.User!.GetRequiredUserId();
         var trustedDto = dto with { SenderUserId = currentUserId };
         var message = await messageService.SendAsync(chatId, trustedDto, CancellationToken.None);
+        await AuditAsync("hub_message_send", "success", currentUserId, "message", message.MessageId.ToString("D"), null);
         var eventDto = await BuildMessageCreatedEventAsync(chatId, message);
 
         await Clients.Group(GetChatGroup(chatId)).SendAsync("RealtimeEvent", eventDto);
@@ -43,9 +63,15 @@ public class ChatHub(IMessageService messageService, IChatService chatService, I
 
     public async Task MarkMessagesAsRead(Guid chatId, Guid readerUserId)
     {
+        var currentUserId = Context.User!.GetRequiredUserId();
+        if (await abuseGuard.IsBlockedAsync(currentUserId, CancellationToken.None))
+        {
+            await AuditAsync("blocked_user_hub_read", "denied", currentUserId, "chat", chatId.ToString("D"), "user is blocked");
+            throw new HubException("Forbidden.");
+        }
+
         await EnsureCurrentUserCanAccessChat(chatId);
 
-        var currentUserId = Context.User!.GetRequiredUserId();
         var readMessageIds = await messageService.MarkMessagesAsReadAsync(chatId, currentUserId, CancellationToken.None);
         if (readMessageIds.Count == 0)
         {
@@ -72,6 +98,7 @@ public class ChatHub(IMessageService messageService, IChatService chatService, I
         var currentUserId = Context.User!.GetRequiredUserId();
         if (currentUserId != userId)
         {
+            await AuditAsync("hub_changes_forbidden", "denied", currentUserId, "users", userId.ToString("D"), "cannot read another user's changes");
             throw new HubException("Forbidden.");
         }
 
@@ -84,6 +111,11 @@ public class ChatHub(IMessageService messageService, IChatService chatService, I
         if (currentUserId == Guid.Empty)
         {
             return;
+        }
+        if (await abuseGuard.IsBlockedAsync(currentUserId, CancellationToken.None))
+        {
+            await AuditAsync("blocked_user_presence", "denied", currentUserId, "presence", currentUserId.ToString("D"), "user is blocked");
+            throw new HubException("Forbidden.");
         }
 
         if (isOnline)
@@ -155,8 +187,31 @@ public class ChatHub(IMessageService messageService, IChatService chatService, I
         var chat = await chatService.GetByIdAsync(chatId, CancellationToken.None);
         if (chat is null || !chat.ParticipantUserIds.Contains(currentUserId))
         {
+            await AuditAsync("hub_chat_access_forbidden", "denied", currentUserId, "chat", chatId.ToString("D"), "not a participant");
             throw new HubException("Forbidden.");
         }
+    }
+
+    private Task AuditAsync(
+        string eventType,
+        string outcome,
+        Guid? userId,
+        string? resourceType,
+        string? resourceId,
+        string? reason)
+    {
+        var httpContext = Context.GetHttpContext();
+        return auditService.RecordAsync(new SecurityAuditEventInput(
+            eventType,
+            outcome,
+            outcome == "success" ? "info" : "warning",
+            userId,
+            httpContext?.Connection.RemoteIpAddress?.ToString(),
+            httpContext?.Request.Headers.UserAgent.ToString(),
+            resourceType,
+            resourceId,
+            reason),
+            CancellationToken.None);
     }
 
     private static bool RegisterConnection(Guid userId, string connectionId)

@@ -1,3 +1,3 @@
 namespace NETmessenger.Contracts.Users;
 
-public record GetUserDto(Guid UserId, string Login, string Username, DateTime LastSeenAt);
+public record GetUserDto(Guid UserId, string Username, DateTime LastSeenAt);

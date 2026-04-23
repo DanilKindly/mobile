@@ -97,10 +97,10 @@ async function handleReconnectPush() {
   await pushStore.reconnectPush()
 }
 
-async function selectLoginAndCreateChat(login) {
+async function selectUserAndCreateChat(user) {
   try {
     const currentUserId = getCurrentUserId()
-    const createdChatId = await messengerApi.getOrCreateChatWithUserByLogin(currentUserId, login)
+    const createdChatId = await messengerApi.getOrCreateChatWithUser(currentUserId, user.userId)
     await chatStore.loadChats()
     const created = chatStore.getChatById(createdChatId)
     showUserSearch.value = false
@@ -591,7 +591,9 @@ onMounted(async () => {
     chatStore.loadChats().catch((e) => console.error('Failed to refresh chats:', e))
   }
 
-  chatStore.ensureUsers().catch((e) => console.error('Failed to load users for status fallback:', e))
+  if (activePeerId.value) {
+    chatStore.ensureUsers([activePeerId.value]).catch((e) => console.error('Failed to load users for status fallback:', e))
+  }
 
   await ensureRealtime()
   await Promise.all([
@@ -738,7 +740,7 @@ async function handleSendMedia(file) {
       v-if="showUserSearch"
       :dark-theme="themeStore.darkTheme"
       @close="showUserSearch = false"
-      @select-login="selectLoginAndCreateChat"
+      @select-user="selectUserAndCreateChat"
     />
   </div>
 </template>

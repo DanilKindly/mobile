@@ -316,8 +316,18 @@ function persistCurrentUser(currentUser) {
 }
 
 export const messengerApi = {
-  async getUsers() {
-    const response = await api.get('/api/users')
+  async getCurrentUserProfile() {
+    const response = await api.get('/api/users/me')
+    return normalizeUser(response.data ?? {})
+  },
+
+  async getUsers(userIds = []) {
+    const ids = [...new Set((userIds || []).map((id) => String(id || '').trim()).filter(Boolean))]
+    if (!ids.length) return []
+
+    const response = await api.get('/api/users/participants', {
+      params: { ids: ids.join(',') },
+    })
     return (response.data ?? []).map(normalizeUser)
   },
 
@@ -361,7 +371,10 @@ export const messengerApi = {
     const response = await api.get('/api/users/search', {
       params: { login },
     })
-    return (response.data ?? []).map(normalizeUser)
+    return (response.data ?? []).map((user) => ({
+      userId: user.userId ?? user.UserId,
+      username: user.username ?? user.Username,
+    }))
   },
 
   async registerUser({ login, password, username }) {
@@ -421,16 +434,8 @@ export const messengerApi = {
     localStorage.removeItem(PUSH_FINGERPRINT_STORAGE_KEY)
   },
 
-  async getOrCreateChatWithUserByLogin(currentUserId, peerLogin) {
-    const query = peerLogin.trim().toLowerCase()
-    const candidates = await this.searchUsersByLogin(query)
-    const peer = candidates.find((u) => u.login.toLowerCase() === query)
-
-    if (!peer) {
-      throw new Error('User with this login was not found.')
-    }
-
-    if (String(peer.userId).toLowerCase() === String(currentUserId).toLowerCase()) {
+  async getOrCreateChatWithUser(currentUserId, peerUserId) {
+    if (String(peerUserId).toLowerCase() === String(currentUserId).toLowerCase()) {
       throw new Error('Cannot create a chat with yourself.')
     }
 
@@ -438,7 +443,7 @@ export const messengerApi = {
     const existingChat = chats.find((c) => {
       const isGroup = c.isGroup ?? c.IsGroup
       const participantIds = c.participantUserIds ?? c.ParticipantUserIds ?? []
-      return !isGroup && participantIds.some((id) => String(id).toLowerCase() === String(peer.userId).toLowerCase())
+      return !isGroup && participantIds.some((id) => String(id).toLowerCase() === String(peerUserId).toLowerCase())
     })
 
     if (existingChat) {
@@ -448,10 +453,22 @@ export const messengerApi = {
     const created = await this.createChat({
       isGroup: false,
       name: null,
-      participantUserIds: [currentUserId, peer.userId],
+      participantUserIds: [currentUserId, peerUserId],
     })
 
     return created.chatId ?? created.ChatId
+  },
+
+  async getOrCreateChatWithUserByLogin(currentUserId, peerLogin) {
+    const query = peerLogin.trim().toLowerCase()
+    const candidates = await this.searchUsersByLogin(query)
+    const peer = candidates[0]
+
+    if (!peer) {
+      throw new Error('User with this login was not found.')
+    }
+
+    return this.getOrCreateChatWithUser(currentUserId, peer.userId)
   },
 
   async createChat(payload) {
@@ -686,6 +703,16 @@ export const messengerApi = {
 
   normalizeMessage,
   resolveAssetUrl,
+
+  async fetchAssetObjectUrl(url) {
+    const token = localStorage.getItem(TOKEN_KEY)
+    const response = await axios.get(url, {
+      responseType: 'blob',
+      withCredentials: true,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    return URL.createObjectURL(response.data)
+  },
 }
 
 export default messengerApi

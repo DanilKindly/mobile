@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using NETmessenger.Application.Abstractions.Chats;
 using NETmessenger.Application.Abstractions.Messages;
+using NETmessenger.Application.Abstractions.Security;
 using NETmessenger.Application.Exceptions;
 using NETmessenger.Contracts.Messages;
 using NETmessenger.Web.Hubs;
@@ -16,6 +18,8 @@ namespace NETmessenger.Web.Controllers.Messages;
 public class MessagesController(
     IMessageService messageService,
     IChatService chatService,
+    ISecurityAuditService auditService,
+    IAbuseGuard abuseGuard,
     IHubContext<ChatHub> hubContext) : ControllerBase
 {
     [HttpGet]
@@ -30,6 +34,7 @@ public class MessagesController(
         {
             if (!await CurrentUserCanAccessChat(chatId, cancellationToken))
             {
+                await AuditAsync("message_read_forbidden", "denied", User.GetRequiredUserId(), "chat", chatId.ToString("D"), "not a participant", cancellationToken);
                 return Forbid();
             }
 
@@ -48,18 +53,27 @@ public class MessagesController(
     }
 
     [HttpPost]
+    [EnableRateLimiting("send-message")]
     public async Task<ActionResult<GetMessageDto>> Send(Guid chatId, [FromBody] SendMessageDto dto, CancellationToken cancellationToken)
     {
         try
         {
-            if (!await CurrentUserCanAccessChat(chatId, cancellationToken))
+            var currentUserId = User.GetRequiredUserId();
+            if (await abuseGuard.IsBlockedAsync(currentUserId, cancellationToken))
             {
+                await AuditAsync("blocked_user_send", "denied", currentUserId, "chat", chatId.ToString("D"), "user is blocked", cancellationToken);
                 return Forbid();
             }
 
-            var currentUserId = User.GetRequiredUserId();
+            if (!await CurrentUserCanAccessChat(chatId, cancellationToken))
+            {
+                await AuditAsync("message_send_forbidden", "denied", currentUserId, "chat", chatId.ToString("D"), "not a participant", cancellationToken);
+                return Forbid();
+            }
+
             var trustedDto = dto with { SenderUserId = currentUserId };
             var message = await messageService.SendAsync(chatId, trustedDto, cancellationToken);
+            await AuditAsync("message_send", "success", currentUserId, "message", message.MessageId.ToString("D"), null, cancellationToken);
             var cursor = Math.Max(message.Version, DateTime.UtcNow.Ticks);
             var realtimeEvent = new RealtimeEventDto(
                 "MessageCreated",
@@ -85,6 +99,7 @@ public class MessagesController(
     }
 
     [HttpPost("voice")]
+    [EnableRateLimiting("send-message")]
     [RequestSizeLimit(50 * 1024 * 1024)]
     public async Task<ActionResult<GetMessageDto>> SendVoice(
         Guid chatId,
@@ -104,12 +119,19 @@ public class MessagesController(
 
         try
         {
-            if (!await CurrentUserCanAccessChat(chatId, cancellationToken))
+            var currentUserId = User.GetRequiredUserId();
+            if (await abuseGuard.IsBlockedAsync(currentUserId, cancellationToken))
             {
+                await AuditAsync("blocked_user_send_voice", "denied", currentUserId, "chat", chatId.ToString("D"), "user is blocked", cancellationToken);
                 return Forbid();
             }
 
-            var currentUserId = User.GetRequiredUserId();
+            if (!await CurrentUserCanAccessChat(chatId, cancellationToken))
+            {
+                await AuditAsync("voice_send_forbidden", "denied", currentUserId, "chat", chatId.ToString("D"), "not a participant", cancellationToken);
+                return Forbid();
+            }
+
             await using var stream = request.Audio.OpenReadStream();
             var message = await messageService.SendVoiceAsync(
                 chatId,
@@ -120,6 +142,7 @@ public class MessagesController(
                 request.Audio.Length,
                 request.DurationSeconds,
                 cancellationToken);
+            await AuditAsync("message_send_voice", "success", currentUserId, "message", message.MessageId.ToString("D"), null, cancellationToken);
 
             var cursor = Math.Max(message.Version, DateTime.UtcNow.Ticks);
             var realtimeEvent = new RealtimeEventDto(
@@ -146,6 +169,7 @@ public class MessagesController(
     }
 
     [HttpPost("media")]
+    [EnableRateLimiting("send-message")]
     [RequestSizeLimit(100 * 1024 * 1024)]
     public async Task<ActionResult<GetMessageDto>> SendMedia(
         Guid chatId,
@@ -159,12 +183,19 @@ public class MessagesController(
 
         try
         {
-            if (!await CurrentUserCanAccessChat(chatId, cancellationToken))
+            var currentUserId = User.GetRequiredUserId();
+            if (await abuseGuard.IsBlockedAsync(currentUserId, cancellationToken))
             {
+                await AuditAsync("blocked_user_send_media", "denied", currentUserId, "chat", chatId.ToString("D"), "user is blocked", cancellationToken);
                 return Forbid();
             }
 
-            var currentUserId = User.GetRequiredUserId();
+            if (!await CurrentUserCanAccessChat(chatId, cancellationToken))
+            {
+                await AuditAsync("media_send_forbidden", "denied", currentUserId, "chat", chatId.ToString("D"), "not a participant", cancellationToken);
+                return Forbid();
+            }
+
             await using var stream = request.File.OpenReadStream();
             var message = await messageService.SendMediaAsync(
                 chatId,
@@ -174,6 +205,7 @@ public class MessagesController(
                 request.File.ContentType ?? "application/octet-stream",
                 request.File.Length,
                 cancellationToken);
+            await AuditAsync("message_send_media", "success", currentUserId, "message", message.MessageId.ToString("D"), null, cancellationToken);
 
             var cursor = Math.Max(message.Version, DateTime.UtcNow.Ticks);
             var realtimeEvent = new RealtimeEventDto(
@@ -211,6 +243,7 @@ public class MessagesController(
             var currentUserId = User.GetRequiredUserId();
             if (currentUserId != userId)
             {
+                await AuditAsync("changes_read_forbidden", "denied", currentUserId, "users", userId.ToString("D"), "cannot read another user's changes", cancellationToken);
                 return Forbid();
             }
 
@@ -228,5 +261,27 @@ public class MessagesController(
         var currentUserId = User.GetRequiredUserId();
         var chat = await chatService.GetByIdAsync(chatId, cancellationToken);
         return chat is not null && chat.ParticipantUserIds.Contains(currentUserId);
+    }
+
+    private Task AuditAsync(
+        string eventType,
+        string outcome,
+        Guid? userId,
+        string? resourceType,
+        string? resourceId,
+        string? reason,
+        CancellationToken cancellationToken)
+    {
+        return auditService.RecordAsync(new SecurityAuditEventInput(
+            eventType,
+            outcome,
+            outcome == "success" ? "info" : "warning",
+            userId,
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            Request.Headers.UserAgent.ToString(),
+            resourceType,
+            resourceId,
+            reason),
+            cancellationToken);
     }
 }

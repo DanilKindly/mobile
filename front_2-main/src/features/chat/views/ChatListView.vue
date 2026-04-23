@@ -125,10 +125,10 @@ function handleCreateChat() {
   showUserSearch.value = true
 }
 
-async function selectLoginAndCreateChat(login) {
+async function selectUserAndCreateChat(user) {
   try {
     const currentUserId = currentUser.value.userId
-    const chatId = await messengerApi.getOrCreateChatWithUserByLogin(currentUserId, login)
+    const chatId = await messengerApi.getOrCreateChatWithUser(currentUserId, user.userId)
     await chatStore.loadChats()
     const created = chatStore.getChatById(chatId)
     showUserSearch.value = false
@@ -207,7 +207,7 @@ onBeforeUnmount(() => {
       v-if="showUserSearch"
       :dark-theme="themeStore.darkTheme"
       @close="showUserSearch = false"
-      @select-login="selectLoginAndCreateChat"
+      @select-user="selectUserAndCreateChat"
     />
   </div>
 </template>

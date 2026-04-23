@@ -9,7 +9,7 @@ defineProps({
   },
 })
 
-const emit = defineEmits(['close', 'select-login'])
+const emit = defineEmits(['close', 'select-user'])
 
 const query = ref('')
 const searched = ref(false)
@@ -38,7 +38,7 @@ async function runSearch() {
 }
 
 function selectUser(user) {
-  emit('select-login', user.login)
+  emit('select-user', user)
 }
 </script>
 
@@ -80,11 +80,11 @@ function selectUser(user) {
           @click="selectUser(user)"
         >
           <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">
-            {{ (user.username || user.login || '?')[0].toUpperCase() }}
+            {{ (user.username || '?')[0].toUpperCase() }}
           </div>
           <div class="min-w-0">
             <div class="font-medium truncate" :class="darkTheme ? 'text-white' : 'text-gray-800'">{{ user.username }}</div>
-            <div class="text-sm opacity-60" :class="darkTheme ? 'text-gray-400' : 'text-gray-500'">@{{ user.login }}</div>
+            <div class="text-sm opacity-60" :class="darkTheme ? 'text-gray-400' : 'text-gray-500'">Найден по логину</div>
           </div>
         </button>
       </div>
