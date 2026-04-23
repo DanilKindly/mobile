@@ -17,10 +17,8 @@ using NETmessenger.Infrastructure.Services;
 
 using NETmessenger.Application.Abstractions.Auth;
 using NETmessenger.Application.Abstractions.Push;
-using NETmessenger.Application.Abstractions.Security;
 using NETmessenger.Domain.Entities;
 using NETmessenger.Infrastructure.Services.Auth;
-using NETmessenger.Infrastructure.Services.Security;
 
 namespace NETmessenger.Infrastructure;
 
@@ -44,8 +42,6 @@ public static class DependencyInjection
         services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IPushNotificationService, PushNotificationService>();
-        services.AddScoped<ISecurityAuditService, SecurityAuditService>();
-        services.AddScoped<IAbuseGuard, AbuseGuard>();
 
         return services;
     }

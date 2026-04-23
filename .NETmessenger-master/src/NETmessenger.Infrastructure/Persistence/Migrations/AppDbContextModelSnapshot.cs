@@ -161,6 +161,9 @@ namespace NETmessenger.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime?>("LastFailureAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("LastErrorCode")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
@@ -168,9 +171,6 @@ namespace NETmessenger.Infrastructure.Persistence.Migrations
                     b.Property<string>("LastErrorMessage")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
-
-                    b.Property<DateTime?>("LastFailureAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("LastSuccessAt")
                         .HasColumnType("timestamp with time zone");
@@ -198,68 +198,6 @@ namespace NETmessenger.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("PushSubscriptions");
-                });
-
-            modelBuilder.Entity("NETmessenger.Domain.Entities.SecurityAuditEvent", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("EventType")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<string>("IpAddress")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("MetadataJson")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<string>("Outcome")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<string>("Reason")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("ResourceId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("ResourceType")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<string>("Severity")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("UserAgent")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<Guid?>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedAtUtc");
-
-                    b.HasIndex("EventType");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("SecurityAuditEvents");
                 });
 
             modelBuilder.Entity("NETmessenger.Domain.Entities.User", b =>
@@ -294,44 +232,6 @@ namespace NETmessenger.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Users");
-                });
-
-            modelBuilder.Entity("NETmessenger.Domain.Entities.UserBlock", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("BlockedUntilUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("CreatedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsPermanent")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("UserId", "IsActive");
-
-                    b.ToTable("UserBlocks");
                 });
 
             modelBuilder.Entity("ChatUser", b =>
@@ -369,15 +269,6 @@ namespace NETmessenger.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("NETmessenger.Domain.Entities.PushSubscription", b =>
-                {
-                    b.HasOne("NETmessenger.Domain.Entities.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("NETmessenger.Domain.Entities.UserBlock", b =>
                 {
                     b.HasOne("NETmessenger.Domain.Entities.User", null)
                         .WithMany()

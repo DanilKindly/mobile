@@ -31,57 +31,20 @@ public sealed class UserService : IUserService
         return await _dbContext.Users
             .AsNoTracking()
             .OrderBy(u => u.Login)
-            .Select(u => new GetUserDto(u.Id, u.Username, u.LastSeenAt))
+            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
             .ToArrayAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyCollection<UserSearchResultDto>> SearchByLoginAsync(
-        string login,
-        Guid currentUserId,
-        CancellationToken cancellationToken)
+    public async Task<IReadOnlyCollection<GetUserDto>> SearchByLoginAsync(string login, CancellationToken cancellationToken)
     {
         var normalizedLogin = NormalizeRequired(login, "Login is required.").ToLowerInvariant();
-        ValidateLogin(normalizedLogin);
 
         return await _dbContext.Users
             .AsNoTracking()
-            .Where(u => u.Id != currentUserId && u.Login.ToLower() == normalizedLogin)
+            .Where(u => u.Login.ToLower().Contains(normalizedLogin))
             .OrderBy(u => u.Login)
-            .Take(1)
-            .Select(u => new UserSearchResultDto(u.Id, u.Username))
-            .ToArrayAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyCollection<GetUserDto>> GetVisibleParticipantsAsync(
-        Guid currentUserId,
-        IReadOnlyCollection<Guid> requestedUserIds,
-        CancellationToken cancellationToken)
-    {
-        var normalizedIds = requestedUserIds
-            .Where(id => id != Guid.Empty && id != currentUserId)
-            .Distinct()
-            .Take(100)
-            .ToArray();
-
-        if (normalizedIds.Length == 0)
-        {
-            return Array.Empty<GetUserDto>();
-        }
-
-        var visibleUserIds = await _dbContext.Chats
-            .AsNoTracking()
-            .Where(c => c.Participants.Any(p => p.Id == currentUserId))
-            .SelectMany(c => c.Participants)
-            .Where(p => normalizedIds.Contains(p.Id))
-            .Select(p => p.Id)
-            .Distinct()
-            .ToArrayAsync(cancellationToken);
-
-        return await _dbContext.Users
-            .AsNoTracking()
-            .Where(u => visibleUserIds.Contains(u.Id))
-            .OrderBy(u => u.Username)
-            .Select(u => new GetUserDto(u.Id, u.Username, u.LastSeenAt))
+            .Take(20)
+            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
             .ToArrayAsync(cancellationToken);
     }
 
@@ -90,16 +53,7 @@ public sealed class UserService : IUserService
         return await _dbContext.Users
             .AsNoTracking()
             .Where(u => u.Id == userId)
-            .Select(u => new GetUserDto(u.Id, u.Username, u.LastSeenAt))
-            .FirstOrDefaultAsync(cancellationToken);
-    }
-
-    public async Task<CurrentUserDto?> GetCurrentAsync(Guid userId, CancellationToken cancellationToken)
-    {
-        return await _dbContext.Users
-            .AsNoTracking()
-            .Where(u => u.Id == userId)
-            .Select(u => new CurrentUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
+            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -245,6 +199,6 @@ public sealed class UserService : IUserService
 
     private static GetUserDto MapToDto(User user)
     {
-        return new GetUserDto(user.Id, user.Username, user.LastSeenAt);
+        return new GetUserDto(user.Id, user.Login, user.Username, user.LastSeenAt);
     }
 }

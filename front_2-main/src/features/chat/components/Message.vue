@@ -1,6 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import messengerApi from '@/api/messenger'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
   message: {
@@ -16,10 +15,6 @@ const emit = defineEmits(['media-loaded'])
 
 const voiceAudioRef = ref(null)
 const isVoicePlaying = ref(false)
-const secureVoiceUrl = ref(null)
-const secureMediaUrl = ref(null)
-let voiceObjectUrl = null
-let mediaObjectUrl = null
 
 const isBot = computed(() => !!props.message.isBot)
 const isRead = computed(() => !!props.message.isRead)
@@ -62,59 +57,6 @@ function onVoicePause() {
 function onMediaLoaded() {
   emit('media-loaded')
 }
-
-async function loadSecureAsset(sourceUrl, targetRef, currentObjectUrlSetter) {
-  if (!sourceUrl) {
-    currentObjectUrlSetter(null)
-    targetRef.value = null
-    return
-  }
-
-  if (!sourceUrl.startsWith('http')) {
-    targetRef.value = sourceUrl
-    return
-  }
-
-  try {
-    const objectUrl = await messengerApi.fetchAssetObjectUrl(sourceUrl)
-    currentObjectUrlSetter(objectUrl)
-    targetRef.value = objectUrl
-  } catch (error) {
-    console.error('Failed to load protected message asset:', error)
-    targetRef.value = sourceUrl
-  }
-}
-
-function setVoiceObjectUrl(nextUrl) {
-  if (voiceObjectUrl) {
-    URL.revokeObjectURL(voiceObjectUrl)
-  }
-  voiceObjectUrl = nextUrl
-}
-
-function setMediaObjectUrl(nextUrl) {
-  if (mediaObjectUrl) {
-    URL.revokeObjectURL(mediaObjectUrl)
-  }
-  mediaObjectUrl = nextUrl
-}
-
-watch(
-  () => props.message.audioUrl,
-  (url) => loadSecureAsset(url, secureVoiceUrl, setVoiceObjectUrl),
-  { immediate: true },
-)
-
-watch(
-  () => props.message.mediaUrl,
-  (url) => loadSecureAsset(url, secureMediaUrl, setMediaObjectUrl),
-  { immediate: true },
-)
-
-onBeforeUnmount(() => {
-  setVoiceObjectUrl(null)
-  setMediaObjectUrl(null)
-})
 </script>
 
 <template>
@@ -142,7 +84,7 @@ onBeforeUnmount(() => {
         </div>
         <audio
           ref="voiceAudioRef"
-          :src="secureVoiceUrl || message.audioUrl"
+          :src="message.audioUrl"
           preload="metadata"
           class="hidden"
           @play="onVoicePlay"
@@ -154,7 +96,7 @@ onBeforeUnmount(() => {
       <div v-if="isMedia" class="flex flex-col gap-2">
         <img
           v-if="isImage"
-          :src="secureMediaUrl || message.mediaUrl"
+          :src="message.mediaUrl"
           alt="media"
           class="max-w-[260px] max-h-[260px] rounded-[8px] object-cover"
           @load="onMediaLoaded"
@@ -162,7 +104,7 @@ onBeforeUnmount(() => {
 
         <video
           v-else-if="isVideo"
-          :src="secureMediaUrl || message.mediaUrl"
+          :src="message.mediaUrl"
           controls
           class="max-w-[260px] max-h-[260px] rounded-[8px]"
           @loadedmetadata="onMediaLoaded"
@@ -170,7 +112,7 @@ onBeforeUnmount(() => {
 
         <audio
           v-else-if="isAudioFile"
-          :src="secureMediaUrl || message.mediaUrl"
+          :src="message.mediaUrl"
           controls
           class="max-w-[260px]"
           @loadedmetadata="onMediaLoaded"
@@ -178,7 +120,7 @@ onBeforeUnmount(() => {
 
         <a
           v-else
-          :href="secureMediaUrl || message.mediaUrl"
+          :href="message.mediaUrl"
           target="_blank"
           rel="noopener noreferrer"
           class="px-3 py-2 rounded-[8px] text-sm underline"

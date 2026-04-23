@@ -201,23 +201,22 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
-  async function ensureUsers(userIds = [], forceRefresh = false) {
+  async function ensureUsers(forceRefresh = false) {
     const now = Date.now()
-    const requestedIds = [...new Set((userIds || []).map((id) => normalizeId(id)).filter(Boolean))]
-    const hasAllRequestedUsers = requestedIds.every((id) => usersById.value[id])
+    const hasUsers = Object.keys(usersById.value).length > 0
     const isFresh = now - usersFetchedAt.value < 30_000
 
-    if (!forceRefresh && hasAllRequestedUsers && isFresh) {
+    if (!forceRefresh && hasUsers && isFresh) {
       return Object.values(usersById.value)
     }
 
-    const users = await messengerApi.getUsers(requestedIds)
+    const users = await messengerApi.getUsers()
     usersById.value = users.reduce((acc, user) => {
       acc[normalizeId(user.userId)] = user
       return acc
-    }, { ...usersById.value })
+    }, {})
     usersFetchedAt.value = now
-    return Object.values(usersById.value)
+    return users
   }
 
   async function loadChats(options = {}) {
@@ -255,9 +254,6 @@ export const useChatStore = defineStore('chat', () => {
       const backendChats = await messengerApi.getChatsByUser(currentUserId)
       chatsFetchedAt.value = now
       const liveById = new Map(chats.value.map((chat) => [normalizeId(chat.id), chat]))
-      const participantIds = backendChats
-        .flatMap((chat) => chat.participantUserIds ?? chat.ParticipantUserIds ?? [])
-        .filter((id) => normalizeId(id) !== normalizeId(currentUserId))
 
       // Render chat list instantly using cached users (if available).
       const cachedUsers = Object.values(usersById.value)
@@ -266,8 +262,8 @@ export const useChatStore = defineStore('chat', () => {
       chats.value = sortChatsByLastMessage(dedupeDirectChats(mappedChats))
       syncUnreadCountsFromRenderedChats()
 
-      // Hydrate visible participant names in background so UI is not blocked.
-      ensureUsers(participantIds, forceUsersRefresh)
+      // Hydrate user names in background so UI is not blocked by /api/users.
+      ensureUsers(forceUsersRefresh)
         .then((allUsers) => {
           if (!currentUser.value || normalizeId(currentUser.value.userId) !== normalizeId(currentUserId)) {
             return
