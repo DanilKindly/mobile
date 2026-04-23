@@ -1,30 +1,38 @@
 using System.Collections.Concurrent;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using NETmessenger.Application.Abstractions.Chats;
 using NETmessenger.Application.Abstractions.Messages;
 using NETmessenger.Application.Abstractions.Users;
 using NETmessenger.Contracts.Messages;
+using NETmessenger.Web.Security;
 
 namespace NETmessenger.Web.Hubs;
 
+[Authorize]
 public class ChatHub(IMessageService messageService, IChatService chatService, IUserService userService) : Hub
 {
     private static readonly ConcurrentDictionary<string, Guid> ConnectionToUser = new();
     private static readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>> UserConnections = new();
 
-    public Task JoinChat(Guid chatId)
+    public async Task JoinChat(Guid chatId)
     {
-        return Groups.AddToGroupAsync(Context.ConnectionId, GetChatGroup(chatId));
+        await EnsureCurrentUserCanAccessChat(chatId);
+        await Groups.AddToGroupAsync(Context.ConnectionId, GetChatGroup(chatId));
     }
 
-    public Task LeaveChat(Guid chatId)
+    public async Task LeaveChat(Guid chatId)
     {
-        return Groups.RemoveFromGroupAsync(Context.ConnectionId, GetChatGroup(chatId));
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, GetChatGroup(chatId));
     }
 
     public async Task<RealtimeEventDto> SendMessage(Guid chatId, SendMessageDto dto)
     {
-        var message = await messageService.SendAsync(chatId, dto, CancellationToken.None);
+        await EnsureCurrentUserCanAccessChat(chatId);
+
+        var currentUserId = Context.User!.GetRequiredUserId();
+        var trustedDto = dto with { SenderUserId = currentUserId };
+        var message = await messageService.SendAsync(chatId, trustedDto, CancellationToken.None);
         var eventDto = await BuildMessageCreatedEventAsync(chatId, message);
 
         await Clients.Group(GetChatGroup(chatId)).SendAsync("RealtimeEvent", eventDto);
@@ -35,7 +43,10 @@ public class ChatHub(IMessageService messageService, IChatService chatService, I
 
     public async Task MarkMessagesAsRead(Guid chatId, Guid readerUserId)
     {
-        var readMessageIds = await messageService.MarkMessagesAsReadAsync(chatId, readerUserId, CancellationToken.None);
+        await EnsureCurrentUserCanAccessChat(chatId);
+
+        var currentUserId = Context.User!.GetRequiredUserId();
+        var readMessageIds = await messageService.MarkMessagesAsReadAsync(chatId, currentUserId, CancellationToken.None);
         if (readMessageIds.Count == 0)
         {
             return;
@@ -49,42 +60,49 @@ public class ChatHub(IMessageService messageService, IChatService chatService, I
             null,
             chatId,
             readMessageIds,
-            readerUserId,
+            currentUserId,
             null);
 
         await Clients.Group(GetChatGroup(chatId)).SendAsync("RealtimeEvent", eventDto);
-        await Clients.Group(GetChatGroup(chatId)).SendAsync("MessagesRead", chatId, readMessageIds, readerUserId);
+        await Clients.Group(GetChatGroup(chatId)).SendAsync("MessagesRead", chatId, readMessageIds, currentUserId);
     }
 
     public async Task<MessageChangesDto> GetChanges(Guid userId, long cursor, int limit = 250)
     {
-        return await messageService.GetChangesByUserAsync(userId, cursor, limit, CancellationToken.None);
+        var currentUserId = Context.User!.GetRequiredUserId();
+        if (currentUserId != userId)
+        {
+            throw new HubException("Forbidden.");
+        }
+
+        return await messageService.GetChangesByUserAsync(currentUserId, cursor, limit, CancellationToken.None);
     }
 
     public async Task SetPresence(Guid userId, bool isOnline)
     {
-        if (userId == Guid.Empty)
+        var currentUserId = Context.User!.GetRequiredUserId();
+        if (currentUserId == Guid.Empty)
         {
             return;
         }
 
         if (isOnline)
         {
-            var becameOnline = RegisterConnection(userId, Context.ConnectionId);
+            var becameOnline = RegisterConnection(currentUserId, Context.ConnectionId);
             if (becameOnline)
             {
-                await Clients.All.SendAsync("PresenceChanged", userId, true, (DateTime?)null);
+                await Clients.All.SendAsync("PresenceChanged", currentUserId, true, (DateTime?)null);
             }
 
             return;
         }
 
-        var becameOffline = UnregisterConnection(Context.ConnectionId, userId);
+        var becameOffline = UnregisterConnection(Context.ConnectionId, currentUserId);
         if (becameOffline)
         {
             var seenAtUtc = DateTime.UtcNow;
-            await userService.UpdateLastSeenAsync(userId, seenAtUtc, CancellationToken.None);
-            await Clients.All.SendAsync("PresenceChanged", userId, false, seenAtUtc);
+            await userService.UpdateLastSeenAsync(currentUserId, seenAtUtc, CancellationToken.None);
+            await Clients.All.SendAsync("PresenceChanged", currentUserId, false, seenAtUtc);
         }
     }
 
@@ -129,6 +147,16 @@ public class ChatHub(IMessageService messageService, IChatService chatService, I
             null,
             null,
             chatPreview);
+    }
+
+    private async Task EnsureCurrentUserCanAccessChat(Guid chatId)
+    {
+        var currentUserId = Context.User!.GetRequiredUserId();
+        var chat = await chatService.GetByIdAsync(chatId, CancellationToken.None);
+        if (chat is null || !chat.ParticipantUserIds.Contains(currentUserId))
+        {
+            throw new HubException("Forbidden.");
+        }
     }
 
     private static bool RegisterConnection(Guid userId, string connectionId)

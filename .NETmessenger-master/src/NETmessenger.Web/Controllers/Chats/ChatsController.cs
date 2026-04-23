@@ -1,11 +1,14 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NETmessenger.Application.Abstractions.Chats;
 using NETmessenger.Application.Exceptions;
 using NETmessenger.Contracts.Chats;
+using NETmessenger.Web.Security;
 
 namespace NETmessenger.Web.Controllers.Chats;
 
 [ApiController]
+[Authorize]
 [Route("api/chats")]
 public class ChatsController(IChatService chatService) : ControllerBase
 {
@@ -14,6 +17,12 @@ public class ChatsController(IChatService chatService) : ControllerBase
     {
         try
         {
+            var currentUserId = User.GetRequiredUserId();
+            if (!dto.ParticipantUserIds.Contains(currentUserId))
+            {
+                return Forbid();
+            }
+
             var chat = await chatService.CreateAsync(dto, cancellationToken);
             return CreatedAtAction(nameof(GetById), new { chatId = chat.ChatId }, chat);
         }
@@ -30,8 +39,14 @@ public class ChatsController(IChatService chatService) : ControllerBase
     [HttpGet("{chatId:guid}")]
     public async Task<ActionResult<GetChatDto>> GetById(Guid chatId, CancellationToken cancellationToken)
     {
+        var currentUserId = User.GetRequiredUserId();
         var chat = await chatService.GetByIdAsync(chatId, cancellationToken);
-        return chat is null ? NotFound() : Ok(chat);
+        if (chat is null)
+        {
+            return NotFound();
+        }
+
+        return chat.ParticipantUserIds.Contains(currentUserId) ? Ok(chat) : Forbid();
     }
 
     [HttpGet("by-user/{userId:guid}")]
@@ -39,6 +54,12 @@ public class ChatsController(IChatService chatService) : ControllerBase
     {
         try
         {
+            var currentUserId = User.GetRequiredUserId();
+            if (currentUserId != userId)
+            {
+                return Forbid();
+            }
+
             var chats = await chatService.GetByUserIdAsync(userId, cancellationToken);
             return Ok(chats);
         }

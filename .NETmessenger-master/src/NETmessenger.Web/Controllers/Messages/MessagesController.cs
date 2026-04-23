@@ -1,15 +1,22 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+using NETmessenger.Application.Abstractions.Chats;
 using NETmessenger.Application.Abstractions.Messages;
 using NETmessenger.Application.Exceptions;
 using NETmessenger.Contracts.Messages;
 using NETmessenger.Web.Hubs;
+using NETmessenger.Web.Security;
 
 namespace NETmessenger.Web.Controllers.Messages;
 
 [ApiController]
+[Authorize]
 [Route("api/chats/{chatId:guid}/messages")]
-public class MessagesController(IMessageService messageService, IHubContext<ChatHub> hubContext) : ControllerBase
+public class MessagesController(
+    IMessageService messageService,
+    IChatService chatService,
+    IHubContext<ChatHub> hubContext) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<GetMessagesPageDto>> GetByChatId(
@@ -21,6 +28,11 @@ public class MessagesController(IMessageService messageService, IHubContext<Chat
     {
         try
         {
+            if (!await CurrentUserCanAccessChat(chatId, cancellationToken))
+            {
+                return Forbid();
+            }
+
             var messagesPage = await messageService.GetPageByChatIdAsync(
                 chatId,
                 beforeSentAt,
@@ -40,7 +52,14 @@ public class MessagesController(IMessageService messageService, IHubContext<Chat
     {
         try
         {
-            var message = await messageService.SendAsync(chatId, dto, cancellationToken);
+            if (!await CurrentUserCanAccessChat(chatId, cancellationToken))
+            {
+                return Forbid();
+            }
+
+            var currentUserId = User.GetRequiredUserId();
+            var trustedDto = dto with { SenderUserId = currentUserId };
+            var message = await messageService.SendAsync(chatId, trustedDto, cancellationToken);
             var cursor = Math.Max(message.Version, DateTime.UtcNow.Ticks);
             var realtimeEvent = new RealtimeEventDto(
                 "MessageCreated",
@@ -85,10 +104,16 @@ public class MessagesController(IMessageService messageService, IHubContext<Chat
 
         try
         {
+            if (!await CurrentUserCanAccessChat(chatId, cancellationToken))
+            {
+                return Forbid();
+            }
+
+            var currentUserId = User.GetRequiredUserId();
             await using var stream = request.Audio.OpenReadStream();
             var message = await messageService.SendVoiceAsync(
                 chatId,
-                request.SenderUserId,
+                currentUserId,
                 stream,
                 request.Audio.FileName,
                 request.Audio.ContentType,
@@ -134,10 +159,16 @@ public class MessagesController(IMessageService messageService, IHubContext<Chat
 
         try
         {
+            if (!await CurrentUserCanAccessChat(chatId, cancellationToken))
+            {
+                return Forbid();
+            }
+
+            var currentUserId = User.GetRequiredUserId();
             await using var stream = request.File.OpenReadStream();
             var message = await messageService.SendMediaAsync(
                 chatId,
-                request.SenderUserId,
+                currentUserId,
                 stream,
                 request.File.FileName,
                 request.File.ContentType ?? "application/octet-stream",
@@ -177,6 +208,12 @@ public class MessagesController(IMessageService messageService, IHubContext<Chat
     {
         try
         {
+            var currentUserId = User.GetRequiredUserId();
+            if (currentUserId != userId)
+            {
+                return Forbid();
+            }
+
             var changes = await messageService.GetChangesByUserAsync(userId, cursor, limit, cancellationToken);
             return Ok(changes);
         }
@@ -184,5 +221,12 @@ public class MessagesController(IMessageService messageService, IHubContext<Chat
         {
             return NotFound(new { error = ex.Message });
         }
+    }
+
+    private async Task<bool> CurrentUserCanAccessChat(Guid chatId, CancellationToken cancellationToken)
+    {
+        var currentUserId = User.GetRequiredUserId();
+        var chat = await chatService.GetByIdAsync(chatId, cancellationToken);
+        return chat is not null && chat.ParticipantUserIds.Contains(currentUserId);
     }
 }

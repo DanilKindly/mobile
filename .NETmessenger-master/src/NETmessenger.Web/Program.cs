@@ -6,7 +6,6 @@ using NETmessenger.Infrastructure;
 using NETmessenger.Infrastructure.Persistence;
 using NETmessenger.Web.Hubs;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.FileProviders;
 using System.Collections.Generic;
 
 const string DevClientCorsPolicy = "DevClient";
@@ -60,6 +59,15 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"];
+var defaultDevelopmentSecret = "YourSuperSecretKeyThatIsLongEnoughForHmacSha256Algorithm";
+if (!builder.Environment.IsDevelopment() &&
+    (string.IsNullOrWhiteSpace(secretKey) ||
+     secretKey == defaultDevelopmentSecret ||
+     secretKey.Length < 32))
+{
+    throw new InvalidOperationException(
+        "JwtSettings:SecretKey must be configured with a unique strong production secret.");
+}
 
 builder.Services.AddAuthentication(options =>
 {
@@ -84,6 +92,12 @@ builder.Services.AddAuthentication(options =>
         OnMessageReceived = context =>
         {
             var token = context.Request.Cookies["auth_token"];
+
+            if (string.IsNullOrEmpty(token) &&
+                context.HttpContext.Request.Path.StartsWithSegments("/hubs/chat"))
+            {
+                token = context.Request.Query["access_token"];
+            }
             
             if (!string.IsNullOrEmpty(token))
             {
@@ -112,31 +126,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors(DevClientCorsPolicy);
-app.UseStaticFiles();
-
-var configuredFileStorageRoot = builder.Configuration["FileStorage:RootPath"];
-if (!string.IsNullOrWhiteSpace(configuredFileStorageRoot))
-{
-    var normalizedStorageRoot = Path.IsPathRooted(configuredFileStorageRoot)
-        ? configuredFileStorageRoot
-        : Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, configuredFileStorageRoot));
-
-    var mediaPath = Path.Combine(normalizedStorageRoot, "media");
-    Directory.CreateDirectory(mediaPath);
-    app.UseStaticFiles(new StaticFileOptions
-    {
-        FileProvider = new PhysicalFileProvider(mediaPath),
-        RequestPath = "/media"
-    });
-
-    var voicePath = Path.Combine(normalizedStorageRoot, "voice");
-    Directory.CreateDirectory(voicePath);
-    app.UseStaticFiles(new StaticFileOptions
-    {
-        FileProvider = new PhysicalFileProvider(voicePath),
-        RequestPath = "/voice"
-    });
-}
 
 app.MapGet("/", () => Results.Ok(new { status = "ok", service = "kindly-messenger-api" }));
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));

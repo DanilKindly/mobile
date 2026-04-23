@@ -57,6 +57,7 @@ public sealed class LocalMediaStorage(IHostEnvironment environment, IConfigurati
                 : Path.GetFullPath(Path.Combine(contentRootPath, configuredRootPath));
 
             result.Add(Path.Combine(normalizedRoot, folderName));
+            return result;
         }
 
         result.Add(Path.Combine(contentRootPath, "wwwroot", folderName));

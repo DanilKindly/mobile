@@ -13,6 +13,7 @@ const PUSH_FINGERPRINT_STORAGE_KEY = 'ois_push_sub_fingerprint'
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 15000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -253,7 +254,9 @@ function ensureRawHandlersAttached(connection) {
 function getSignalRConnection() {
   if (!signalRConnection) {
     signalRConnection = new signalR.HubConnectionBuilder()
-      .withUrl(SIGNALR_URL)
+      .withUrl(SIGNALR_URL, {
+        accessTokenFactory: () => localStorage.getItem(TOKEN_KEY) || '',
+      })
       .withAutomaticReconnect()
       .configureLogging(signalR.LogLevel.Information)
       .build()
