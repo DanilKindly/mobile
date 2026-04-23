@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using System.Security.Cryptography;
 using System.Text;
 using NETmessenger.Application.Abstractions.Auth;
 using NETmessenger.Infrastructure;
@@ -65,8 +66,10 @@ if (!builder.Environment.IsDevelopment() &&
      secretKey == defaultDevelopmentSecret ||
      secretKey.Length < 32))
 {
-    throw new InvalidOperationException(
-        "JwtSettings:SecretKey must be configured with a unique strong production secret.");
+    secretKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+    Console.Error.WriteLine(
+        "SECURITY WARNING: JwtSettings:SecretKey is missing or unsafe. " +
+        "Using an ephemeral runtime key. Configure JwtSettings__SecretKey in production.");
 }
 
 builder.Services.AddAuthentication(options =>
