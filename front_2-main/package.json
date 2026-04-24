@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@microsoft/signalr": "^10.0.0",
@@ -16,6 +18,7 @@
     "vue-router": "^5.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@vitejs/plugin-vue": "^6.0.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
