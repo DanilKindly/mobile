@@ -7,6 +7,7 @@ import { useChatStore } from '@/stores/chat'
 import { usePushStore } from '@/stores/push'
 import { useThemeStore } from '@/stores/theme'
 import messengerApi from '@/api/messenger'
+import { useTextMessageDelivery } from '@/shared/composables/useTextMessageDelivery'
 import {
   getNotificationPermissionState,
   setupNotificationPermissionBootstrap,
@@ -17,6 +18,10 @@ const router = useRouter()
 const chatStore = useChatStore()
 const pushStore = usePushStore()
 const themeStore = useThemeStore()
+const {
+  hydrateDeliveryQueue,
+  drainPendingTextQueue,
+} = useTextMessageDelivery()
 const pushDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_PUSH_DEBUG_UI === '1'
 
 const currentUser = computed(() => chatStore.currentUser)
@@ -93,6 +98,10 @@ const onChatPreviewChanged = (event) => {
   chatStore.applyChatPreview(event.chatPreview, currentUser.value?.userId)
 }
 
+const onConnectionReconnected = async () => {
+  await drainPendingTextQueue({ reason: 'chat-list-reconnect' })
+}
+
 async function ensureRealtime() {
   const ids = chatStore.chats.map((c) => c.id)
   await messengerApi.syncChatSubscriptions(ids)
@@ -102,6 +111,7 @@ async function ensureRealtime() {
   realtimeUnsubscribers = []
   realtimeUnsubscribers.push(messengerApi.subscribeRealtime('MessageCreated', onMessageCreated))
   realtimeUnsubscribers.push(messengerApi.subscribeRealtime('ChatPreviewChanged', onChatPreviewChanged))
+  realtimeUnsubscribers.push(messengerApi.subscribeRealtime('ConnectionReconnected', onConnectionReconnected))
 }
 
 async function handleSelectChat(chat) {
@@ -156,6 +166,7 @@ onMounted(async () => {
   if (!chatStore.currentUser) {
     chatStore.currentUser = rememberedUser
   }
+  hydrateDeliveryQueue()
 
   if (chatStore.chats.length === 0) {
     await chatStore.loadChats()
@@ -165,6 +176,7 @@ onMounted(async () => {
 
   await ensureRealtime()
   await setupNotificationPermissionBootstrap()
+  await drainPendingTextQueue({ reason: 'chat-list-mounted' })
 })
 
 watch(

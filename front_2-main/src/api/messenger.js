@@ -287,8 +287,17 @@ function getSignalRConnection() {
 
       try {
         await fetchMissedChanges()
+        emitRealtime('ConnectionReconnected', {
+          eventType: 'ConnectionReconnected',
+          syncOk: true,
+        })
       } catch (error) {
         console.error('Failed to fetch missed changes after reconnect:', error)
+        emitRealtime('ConnectionReconnected', {
+          eventType: 'ConnectionReconnected',
+          syncOk: false,
+          error,
+        })
       }
     })
   }
@@ -707,6 +716,7 @@ export const messengerApi = {
   async bootstrapRealtimeSync() {
     await ensureConnectionStarted()
     await fetchMissedChanges()
+    emitRealtime('RealtimeSynced', { eventType: 'RealtimeSynced' })
   },
 
   getConnection() {

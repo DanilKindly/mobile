@@ -6,6 +6,9 @@ function normalizeId(id) {
   return String(id || '').toLowerCase()
 }
 
+const TEXT_QUEUE_STORAGE_PREFIX = 'ois_text_delivery_queue_'
+const MEDIA_PLACEHOLDER_STORAGE_PREFIX = 'ois_media_delivery_placeholders_'
+
 function toTimeString(sentAtValue) {
   const date = sentAtValue ? new Date(sentAtValue) : new Date()
   return `${date.getHours().toString().padStart(2, '0')}:${date
@@ -68,6 +71,9 @@ export const useMessageStore = defineStore('message', () => {
   const messagesByChatId = ref({})
   const messagePageByChatId = ref({})
   const pendingByClientId = ref({})
+  const queuedTextByClientId = ref({})
+  const localMediaPlaceholdersByClientId = ref({})
+  const deliveryQueueUserId = ref(null)
 
   const messages = computed(() => {
     const chatKey = normalizeId(activeChatId.value)
@@ -76,6 +82,235 @@ export const useMessageStore = defineStore('message', () => {
 
   function setActiveChat(chatId) {
     activeChatId.value = chatId || null
+  }
+
+  function getTextQueueStorageKey(userId = deliveryQueueUserId.value) {
+    const normalized = normalizeId(userId)
+    return normalized ? `${TEXT_QUEUE_STORAGE_PREFIX}${normalized}` : null
+  }
+
+  function getMediaPlaceholderStorageKey(userId = deliveryQueueUserId.value) {
+    const normalized = normalizeId(userId)
+    return normalized ? `${MEDIA_PLACEHOLDER_STORAGE_PREFIX}${normalized}` : null
+  }
+
+  function readStoredMap(storageKey) {
+    if (!storageKey) return {}
+
+    try {
+      const parsed = JSON.parse(localStorage.getItem(storageKey) || '{}')
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  function persistMap(storageKey, value) {
+    if (!storageKey) return
+
+    try {
+      const entries = Object.fromEntries(
+        Object.entries(value || {}).filter(([, item]) => item && typeof item === 'object'),
+      )
+      localStorage.setItem(storageKey, JSON.stringify(entries))
+    } catch {
+      // Storage must never break message rendering/sending.
+    }
+  }
+
+  function persistTextQueue() {
+    persistMap(getTextQueueStorageKey(), queuedTextByClientId.value)
+  }
+
+  function persistMediaPlaceholders() {
+    persistMap(getMediaPlaceholderStorageKey(), localMediaPlaceholdersByClientId.value)
+  }
+
+  function upsertQueuedTextMessage(item, status = 'pending') {
+    if (!item?.clientMessageId || !item.chatId || !item.senderUserId || !item.text) return null
+
+    const key = normalizeId(item.clientMessageId)
+    const previous = queuedTextByClientId.value[key] || {}
+    const queued = {
+      ...previous,
+      chatId: item.chatId,
+      senderUserId: item.senderUserId,
+      clientMessageId: item.clientMessageId,
+      sentAtClient: item.sentAtClient || previous.sentAtClient || new Date().toISOString(),
+      text: item.text,
+      status,
+      attempts: Number(previous.attempts || 0),
+      updatedAt: new Date().toISOString(),
+    }
+
+    queuedTextByClientId.value = {
+      ...queuedTextByClientId.value,
+      [key]: queued,
+    }
+    persistTextQueue()
+    return queued
+  }
+
+  function upsertLocalMediaPlaceholder(item, status = 'pending') {
+    if (!item?.clientMessageId || !item.chatId || !item.senderUserId) return null
+
+    const key = normalizeId(item.clientMessageId)
+    const previous = localMediaPlaceholdersByClientId.value[key] || {}
+    const queued = {
+      ...previous,
+      chatId: item.chatId,
+      senderUserId: item.senderUserId,
+      clientMessageId: item.clientMessageId,
+      sentAtClient: item.sentAtClient || previous.sentAtClient || new Date().toISOString(),
+      mediaContentType: item.mediaContentType || previous.mediaContentType || null,
+      mediaFileName: item.mediaFileName || previous.mediaFileName || null,
+      mediaSizeBytes: item.mediaSizeBytes ?? previous.mediaSizeBytes ?? null,
+      status,
+      updatedAt: new Date().toISOString(),
+    }
+
+    localMediaPlaceholdersByClientId.value = {
+      ...localMediaPlaceholdersByClientId.value,
+      [key]: queued,
+    }
+    persistMediaPlaceholders()
+    return queued
+  }
+
+  function removeQueuedDelivery(clientMessageId) {
+    if (!clientMessageId) return
+    const key = normalizeId(clientMessageId)
+
+    if (queuedTextByClientId.value[key]) {
+      const next = { ...queuedTextByClientId.value }
+      delete next[key]
+      queuedTextByClientId.value = next
+      persistTextQueue()
+    }
+
+    if (localMediaPlaceholdersByClientId.value[key]) {
+      const next = { ...localMediaPlaceholdersByClientId.value }
+      delete next[key]
+      localMediaPlaceholdersByClientId.value = next
+      persistMediaPlaceholders()
+    }
+  }
+
+  function hydrateDeliveryQueue(userId, currentUserId = userId) {
+    const normalizedUserId = normalizeId(userId)
+    if (!normalizedUserId) return
+
+    deliveryQueueUserId.value = normalizedUserId
+    queuedTextByClientId.value = readStoredMap(getTextQueueStorageKey(normalizedUserId))
+
+    const mediaPlaceholders = readStoredMap(getMediaPlaceholderStorageKey(normalizedUserId))
+    localMediaPlaceholdersByClientId.value = Object.fromEntries(
+      Object.entries(mediaPlaceholders).map(([key, item]) => [
+        key,
+        {
+          ...item,
+          // Browser File/Blob objects do not survive reload; never fake media retry.
+          status: 'failed',
+        },
+      ]),
+    )
+    persistMediaPlaceholders()
+
+    for (const item of Object.values(queuedTextByClientId.value)) {
+      if (!item?.clientMessageId) continue
+      pendingByClientId.value = {
+        ...pendingByClientId.value,
+        [normalizeId(item.clientMessageId)]: item,
+      }
+    }
+
+    if (activeChatId.value) {
+      restoreQueuedMessagesForChat(activeChatId.value, currentUserId)
+    }
+  }
+
+  function removeQueueEntriesForServerMessages(messages) {
+    let changed = false
+    for (const message of messages || []) {
+      const clientMessageId = message.clientMessageId ?? message.ClientMessageId ?? null
+      if (!clientMessageId) continue
+      const key = normalizeId(clientMessageId)
+      if (queuedTextByClientId.value[key] || localMediaPlaceholdersByClientId.value[key]) {
+        removeQueuedDelivery(clientMessageId)
+        changed = true
+      }
+    }
+    return changed
+  }
+
+  function restoreQueuedMessagesForChat(chatId, currentUserId) {
+    const chatKey = normalizeId(chatId)
+    if (!chatKey) return
+
+    const textItems = Object.values(queuedTextByClientId.value)
+      .filter((item) => normalizeId(item.chatId) === chatKey)
+
+    for (const item of textItems) {
+      const mapped = buildStoreMessage({
+        chatId: item.chatId,
+        senderUserId: item.senderUserId,
+        clientMessageId: item.clientMessageId,
+        sentAtClient: item.sentAtClient,
+        sentAt: item.sentAtClient,
+        text: item.text,
+        type: 0,
+        deliveryStatus: item.status === 'failed' ? 2 : 0,
+        isRead: false,
+        version: Date.parse(item.sentAtClient || '') || Date.now(),
+      }, currentUserId)
+      upsertMessage(chatId, mapped)
+    }
+
+    const mediaItems = Object.values(localMediaPlaceholdersByClientId.value)
+      .filter((item) => normalizeId(item.chatId) === chatKey)
+
+    for (const item of mediaItems) {
+      const mapped = buildStoreMessage({
+        chatId: item.chatId,
+        senderUserId: item.senderUserId,
+        clientMessageId: item.clientMessageId,
+        sentAtClient: item.sentAtClient,
+        sentAt: item.sentAtClient,
+        type: 2,
+        mediaContentType: item.mediaContentType,
+        mediaFileName: item.mediaFileName,
+        mediaSizeBytes: item.mediaSizeBytes,
+        deliveryStatus: 2,
+        isRead: false,
+        version: Date.parse(item.sentAtClient || '') || Date.now(),
+      }, currentUserId)
+      mapped.uploadState = 'failed'
+      mapped.localOnly = true
+      upsertMessage(chatId, mapped)
+    }
+  }
+
+  function getQueuedTextMessages(statuses = ['pending', 'failed']) {
+    const allowed = new Set(statuses)
+    return Object.values(queuedTextByClientId.value)
+      .filter((item) => item?.clientMessageId && allowed.has(item.status || 'pending'))
+      .sort((a, b) => new Date(a.sentAtClient || 0).getTime() - new Date(b.sentAtClient || 0).getTime())
+  }
+
+  function ensureQueuedTextMessageFromMessage(message, currentUserId) {
+    if (!message?.clientMessageId || Number(message.type ?? 0) !== 0) return null
+
+    const key = normalizeId(message.clientMessageId)
+    const existing = queuedTextByClientId.value[key]
+    if (existing) return existing
+
+    return upsertQueuedTextMessage({
+      chatId: message.chatId,
+      senderUserId: message.senderUserId || currentUserId,
+      clientMessageId: message.clientMessageId,
+      sentAtClient: message.sentAtClient || message.sentAt,
+      text: message.text,
+    }, 'failed')
   }
 
   function getMessagesByChatId(chatId) {
@@ -156,11 +391,13 @@ export const useMessageStore = defineStore('message', () => {
     try {
       const page = await messengerApi.getMessages(chatId, { limit })
       const incoming = (page.messages || []).map((m) => buildStoreMessage(m, currentUserId))
+      removeQueueEntriesForServerMessages(incoming)
 
       messagesByChatId.value = {
         ...messagesByChatId.value,
         [chatKey]: ensureSorted(incoming),
       }
+      restoreQueuedMessagesForChat(chatId, currentUserId)
 
       setPageState(chatId, {
         isLoadingLatest: false,
@@ -218,6 +455,9 @@ export const useMessageStore = defineStore('message', () => {
   function addBackendMessageToState(messageDto, currentUserId) {
     const mapped = buildStoreMessage(messageDto, currentUserId)
     if (!mapped.chatId) return
+    if (mapped.clientMessageId) {
+      removeQueuedDelivery(mapped.clientMessageId)
+    }
     upsertMessage(mapped.chatId, mapped)
   }
 
@@ -244,6 +484,13 @@ export const useMessageStore = defineStore('message', () => {
         text: payload.text,
       },
     }
+    upsertQueuedTextMessage({
+      chatId,
+      senderUserId: payload.senderUserId,
+      clientMessageId: payload.clientMessageId,
+      sentAtClient: payload.sentAtClient,
+      text: payload.text,
+    }, 'pending')
 
     upsertMessage(chatId, mapped)
     return mapped
@@ -281,6 +528,15 @@ export const useMessageStore = defineStore('message', () => {
         mediaSizeBytes: payload.sizeBytes,
       },
     }
+    upsertLocalMediaPlaceholder({
+      chatId,
+      senderUserId: payload.senderUserId,
+      clientMessageId: payload.clientMessageId,
+      sentAtClient: payload.sentAtClient,
+      mediaContentType: payload.contentType,
+      mediaFileName: payload.fileName,
+      mediaSizeBytes: payload.sizeBytes,
+    }, 'pending')
 
     upsertMessage(chatId, mapped)
     return mapped
@@ -318,14 +574,65 @@ export const useMessageStore = defineStore('message', () => {
     const nextPending = { ...pendingByClientId.value }
     delete nextPending[pendingKey]
     pendingByClientId.value = nextPending
+    removeQueuedDelivery(clientMessageId)
+  }
+
+  function markPendingMessageAsSending(chatId, clientMessageId) {
+    if (!clientMessageId) return
+    const chatKey = normalizeId(chatId)
+    const pendingKey = normalizeId(clientMessageId)
+    const current = messagesByChatId.value[chatKey] || []
+    const index = current.findIndex((m) => m.clientMessageId && normalizeId(m.clientMessageId) === pendingKey)
+
+    if (index >= 0) {
+      current[index] = {
+        ...current[index],
+        deliveryStatus: 0,
+        uploadState: current[index].type === 2 ? 'uploading' : undefined,
+      }
+
+      messagesByChatId.value = {
+        ...messagesByChatId.value,
+        [chatKey]: [...current],
+      }
+    }
+
+    const queued = queuedTextByClientId.value[pendingKey]
+    if (queued) {
+      queuedTextByClientId.value = {
+        ...queuedTextByClientId.value,
+        [pendingKey]: {
+          ...queued,
+          status: 'pending',
+          attempts: Number(queued.attempts || 0) + 1,
+          updatedAt: new Date().toISOString(),
+        },
+      }
+      persistTextQueue()
+    }
   }
 
   function markPendingMessageAsFailed(chatId, clientMessageId) {
     if (!clientMessageId) return
     const chatKey = normalizeId(chatId)
+    const pendingKey = normalizeId(clientMessageId)
     const current = messagesByChatId.value[chatKey] || []
-    const index = current.findIndex((m) => m.clientMessageId && normalizeId(m.clientMessageId) === normalizeId(clientMessageId))
-    if (index < 0) return
+    const index = current.findIndex((m) => m.clientMessageId && normalizeId(m.clientMessageId) === pendingKey)
+    if (index < 0) {
+      const queued = queuedTextByClientId.value[pendingKey]
+      if (queued) {
+        queuedTextByClientId.value = {
+          ...queuedTextByClientId.value,
+          [pendingKey]: {
+            ...queued,
+            status: 'failed',
+            updatedAt: new Date().toISOString(),
+          },
+        }
+        persistTextQueue()
+      }
+      return
+    }
 
     current[index] = {
       ...current[index],
@@ -336,6 +643,36 @@ export const useMessageStore = defineStore('message', () => {
     messagesByChatId.value = {
       ...messagesByChatId.value,
       [chatKey]: [...current],
+    }
+
+    if (Number(current[index].type ?? 0) === 0) {
+      const queued = queuedTextByClientId.value[pendingKey]
+      if (queued) {
+        queuedTextByClientId.value = {
+          ...queuedTextByClientId.value,
+          [pendingKey]: {
+            ...queued,
+            status: 'failed',
+            updatedAt: new Date().toISOString(),
+          },
+        }
+        persistTextQueue()
+      }
+    }
+
+    if (Number(current[index].type ?? 0) === 2) {
+      const queued = localMediaPlaceholdersByClientId.value[pendingKey]
+      if (queued) {
+        localMediaPlaceholdersByClientId.value = {
+          ...localMediaPlaceholdersByClientId.value,
+          [pendingKey]: {
+            ...queued,
+            status: 'failed',
+            updatedAt: new Date().toISOString(),
+          },
+        }
+        persistMediaPlaceholders()
+      }
     }
   }
 
@@ -404,6 +741,8 @@ export const useMessageStore = defineStore('message', () => {
     messagesByChatId,
     messagePageByChatId,
     pendingByClientId,
+    queuedTextByClientId,
+    localMediaPlaceholdersByClientId,
     activeChatId,
     setActiveChat,
     getMessagesByChatId,
@@ -413,8 +752,13 @@ export const useMessageStore = defineStore('message', () => {
     addBackendMessageToState,
     addOptimisticTextMessage,
     addOptimisticMediaMessage,
+    hydrateDeliveryQueue,
+    restoreQueuedMessagesForChat,
+    getQueuedTextMessages,
+    ensureQueuedTextMessageFromMessage,
     updatePendingUploadProgress,
     markPendingMessageAsSent,
+    markPendingMessageAsSending,
     markPendingMessageAsFailed,
     markMessagesAsReadByIds,
     clearMessages,

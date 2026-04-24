@@ -11,6 +11,7 @@ import { useMessageStore } from '@/stores/message'
 import { usePushStore } from '@/stores/push'
 import { useThemeStore } from '@/stores/theme'
 import messengerApi from '@/api/messenger'
+import { useTextMessageDelivery } from '@/shared/composables/useTextMessageDelivery'
 import {
   getNotificationPermissionState,
   setupNotificationPermissionBootstrap,
@@ -23,6 +24,12 @@ const chatStore = useChatStore()
 const messageStore = useMessageStore()
 const pushStore = usePushStore()
 const themeStore = useThemeStore()
+const {
+  hydrateDeliveryQueue,
+  enqueueAndSendText,
+  retryTextMessage,
+  drainPendingTextQueue,
+} = useTextMessageDelivery()
 const pushDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_PUSH_DEBUG_UI === '1'
 
 const currentUser = ref(null)
@@ -338,6 +345,7 @@ async function ensureRealtime() {
   realtimeUnsubscribers.push(messengerApi.subscribeRealtime('MessageUpdatedStatus', onMessageUpdatedStatus))
   realtimeUnsubscribers.push(messengerApi.subscribeRealtime('ChatPreviewChanged', onChatPreviewChanged))
   realtimeUnsubscribers.push(messengerApi.subscribeRealtime('PresenceChanged', onPresenceChanged))
+  realtimeUnsubscribers.push(messengerApi.subscribeRealtime('ConnectionReconnected', onConnectionReconnected))
 }
 
 const onMessageCreated = async (event) => {
@@ -407,6 +415,10 @@ const onMessageUpdatedStatus = (event) => {
 const onChatPreviewChanged = (event) => {
   if (!event?.chatPreview) return
   chatStore.applyChatPreview(event.chatPreview, getCurrentUserId())
+}
+
+const onConnectionReconnected = async () => {
+  await drainTextQueueWithViewport('reconnect')
 }
 
 async function handleMessageMediaLoaded() {
@@ -576,6 +588,7 @@ onMounted(async () => {
     router.push('/')
     return
   }
+  hydrateDeliveryQueue()
 
   const shouldOpenFromRoute = routeChatId.value && isValidGuid(routeChatId.value)
 
@@ -599,6 +612,7 @@ onMounted(async () => {
     syncPresenceSnapshot(),
     setupNotificationPermissionBootstrap(),
   ])
+  await drainTextQueueWithViewport('mounted')
 })
 
 onBeforeUnmount(() => {
@@ -609,42 +623,47 @@ onBeforeUnmount(() => {
 async function handleSendText(text) {
   if (!chatId.value || !currentUser.value) return
 
-  const senderUserId = getCurrentUserId()
-  const clientMessageId = crypto.randomUUID()
-  const sentAtClient = new Date().toISOString()
+  const result = await enqueueAndSendText(chatId.value, text, {
+    onOptimistic: async () => {
+      if (openingPhase.value === 'anchored' && stickToBottom.value) {
+        await pinToLatest()
+      }
+    },
+    onSent: async () => {
+      if (openingPhase.value === 'anchored' && stickToBottom.value) {
+        await pinToLatest()
+      }
+    },
+  })
 
-  messageStore.addOptimisticTextMessage(
-    chatId.value,
-    { clientMessageId, senderUserId, text, sentAtClient },
-    senderUserId,
-  )
-  if (openingPhase.value === 'anchored' && stickToBottom.value) {
-    await pinToLatest()
+  if (!result.ok) {
+    console.error('Failed to send text message:', result.error)
   }
-  chatStore.updatePreviewFromMessage(
-    chatId.value,
-    { senderUserId, text, type: 0, sentAt: sentAtClient },
-    senderUserId,
-  )
+}
 
-  try {
-    const result = await messengerApi.sendMessageReliable(chatId.value, text, senderUserId, {
-      clientMessageId,
-      sentAtClient,
-      ackTimeoutMs: 2800,
-      maxRetries: 2,
-    })
+async function handleRetryMessage(message) {
+  const result = await retryTextMessage(message, {
+    onSent: async () => {
+      if (openingPhase.value === 'anchored' && stickToBottom.value) {
+        await pinToLatest()
+      }
+    },
+  })
 
-    messageStore.markPendingMessageAsSent(chatId.value, clientMessageId, result.message, senderUserId)
-    if (openingPhase.value === 'anchored' && stickToBottom.value) {
-      await pinToLatest()
-    }
-    chatStore.updatePreviewFromMessage(chatId.value, result.message, senderUserId)
-  } catch (e) {
-    messageStore.markPendingMessageAsFailed(chatId.value, clientMessageId)
-    console.error('Failed to send text message:', e)
-    throw e
+  if (!result.ok && !result.skipped) {
+    console.error('Failed to retry text message:', result.error)
   }
+}
+
+async function drainTextQueueWithViewport(reason) {
+  await drainPendingTextQueue({
+    reason,
+    onSent: async () => {
+      if (openingPhase.value === 'anchored' && stickToBottom.value) {
+        await pinToLatest()
+      }
+    },
+  })
 }
 
 async function handleSendVoice({ blob, durationSeconds, fileName }) {
@@ -754,6 +773,7 @@ async function handleSendMedia(file) {
             :message="msg"
             :dark-theme="themeStore.darkTheme"
             @media-loaded="handleMessageMediaLoaded"
+            @retry-message="handleRetryMessage"
           />
         </div>
       </main>

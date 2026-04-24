@@ -12,7 +12,7 @@ const props = defineProps({
     default: false,
   },
 })
-const emit = defineEmits(['media-loaded'])
+const emit = defineEmits(['media-loaded', 'retry-message'])
 
 const voiceAudioRef = ref(null)
 const isVoicePlaying = ref(false)
@@ -34,6 +34,12 @@ const isImage = computed(() => mediaContentType.value.startsWith('image/'))
 const isVideo = computed(() => mediaContentType.value.startsWith('video/'))
 const isAudioFile = computed(() => mediaContentType.value.startsWith('audio/'))
 const isUploading = computed(() => props.message.deliveryStatus === 0 || props.message.uploadState === 'uploading')
+const isFailed = computed(() => Number(props.message.deliveryStatus ?? 1) === 2)
+const isRetryableText = computed(() => !isBot.value && isText.value && isFailed.value && !!props.message.clientMessageId)
+const failedMediaText = computed(() => {
+  const fileName = props.message.mediaFileName ? `: ${props.message.mediaFileName}` : ''
+  return `Файл не отправлен${fileName}`
+})
 const uploadProgress = computed(() => {
   const value = Number(props.message.uploadProgress ?? 0)
   if (!Number.isFinite(value)) return 0
@@ -109,6 +115,11 @@ function onVoiceTimeUpdate() {
 
 function onMediaLoaded() {
   emit('media-loaded')
+}
+
+function retryMessage() {
+  if (!isRetryableText.value) return
+  emit('retry-message', props.message)
 }
 
 watch(
@@ -229,6 +240,14 @@ watch(
           {{ message.mediaFileName || 'Открыть файл' }}
         </a>
 
+        <div
+          v-else-if="isFailed"
+          class="rounded-[12px] px-3 py-2 text-sm"
+          :class="darkTheme ? 'bg-[#182533] text-[#fca5a5]' : 'bg-white text-red-500'"
+        >
+          {{ failedMediaText }}
+        </div>
+
         <div v-if="assetError" class="text-xs text-red-400">
           {{ assetError }}
         </div>
@@ -248,6 +267,14 @@ watch(
         >
           Не отправлено
         </span>
+        <button
+          v-if="isRetryableText"
+          type="button"
+          class="text-[11px] font-medium text-blue-400 hover:text-blue-300"
+          @click="retryMessage"
+        >
+          Повторить
+        </button>
         <span :class="['text-[11px]', darkTheme ? 'text-[#6D7F8F]' : 'text-[#666]']">{{ message.time }}</span>
         <div v-if="!isBot && message.deliveryStatus !== 2" class="flex items-center relative w-[18px] h-[12px]">
           <img src="/src/assets/icons/readFlagDark.svg" class="absolute w-[12px] h-[12px]" v-if="darkTheme" alt="read">
