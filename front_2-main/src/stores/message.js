@@ -249,11 +249,70 @@ export const useMessageStore = defineStore('message', () => {
     return mapped
   }
 
+  function addOptimisticMediaMessage(chatId, payload, currentUserId) {
+    const mapped = buildStoreMessage({
+      chatId,
+      senderUserId: payload.senderUserId,
+      clientMessageId: payload.clientMessageId,
+      sentAtClient: payload.sentAtClient,
+      sentAt: payload.sentAtClient,
+      type: 2,
+      mediaUrl: payload.localUrl,
+      mediaContentType: payload.contentType,
+      mediaFileName: payload.fileName,
+      mediaSizeBytes: payload.sizeBytes,
+      deliveryStatus: 0,
+      isRead: false,
+      version: Date.now(),
+    }, currentUserId)
+
+    mapped.uploadState = 'uploading'
+    mapped.uploadProgress = 0
+
+    pendingByClientId.value = {
+      ...pendingByClientId.value,
+      [normalizeId(payload.clientMessageId)]: {
+        chatId,
+        senderUserId: payload.senderUserId,
+        sentAtClient: payload.sentAtClient,
+        mediaUrl: payload.localUrl,
+        mediaContentType: payload.contentType,
+        mediaFileName: payload.fileName,
+        mediaSizeBytes: payload.sizeBytes,
+      },
+    }
+
+    upsertMessage(chatId, mapped)
+    return mapped
+  }
+
+  function updatePendingUploadProgress(chatId, clientMessageId, progress) {
+    if (!clientMessageId) return
+    const chatKey = normalizeId(chatId)
+    const current = messagesByChatId.value[chatKey] || []
+    const index = current.findIndex((m) => m.clientMessageId && normalizeId(m.clientMessageId) === normalizeId(clientMessageId))
+    if (index < 0) return
+
+    current[index] = {
+      ...current[index],
+      uploadState: 'uploading',
+      uploadProgress: Math.max(0, Math.min(100, Math.round(Number(progress || 0)))),
+    }
+
+    messagesByChatId.value = {
+      ...messagesByChatId.value,
+      [chatKey]: [...current],
+    }
+  }
+
   function markPendingMessageAsSent(chatId, clientMessageId, messageDto, currentUserId) {
     if (!clientMessageId) return
     const pendingKey = normalizeId(clientMessageId)
     const mapped = buildStoreMessage(messageDto, currentUserId, pendingByClientId.value[pendingKey] || {})
+    mapped.clientMessageId = mapped.clientMessageId || clientMessageId
     mapped.deliveryStatus = mapped.isRead ? 3 : 1
+    mapped.uploadState = 'sent'
+    mapped.uploadProgress = 100
     upsertMessage(chatId, mapped)
 
     const nextPending = { ...pendingByClientId.value }
@@ -271,6 +330,7 @@ export const useMessageStore = defineStore('message', () => {
     current[index] = {
       ...current[index],
       deliveryStatus: 2,
+      uploadState: 'failed',
     }
 
     messagesByChatId.value = {
@@ -352,6 +412,8 @@ export const useMessageStore = defineStore('message', () => {
     loadOlderMessagesByChatId,
     addBackendMessageToState,
     addOptimisticTextMessage,
+    addOptimisticMediaMessage,
+    updatePendingUploadProgress,
     markPendingMessageAsSent,
     markPendingMessageAsFailed,
     markMessagesAsReadByIds,

@@ -24,6 +24,9 @@ let activePointerId = null
 let finalizeMode = 'cancel'
 
 const SWIPE_CANCEL_THRESHOLD = 90
+const IMAGE_MAX_WIDTH = 1280
+const IMAGE_MAX_HEIGHT = 720
+const IMAGE_QUALITY = 0.8
 
 defineProps({
   darkTheme: {
@@ -63,10 +66,94 @@ function getPreferredMimeType() {
   if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) {
     return ''
   }
+  if (MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4'
+  if (MediaRecorder.isTypeSupported('audio/aac')) return 'audio/aac'
   if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return 'audio/webm;codecs=opus'
   if (MediaRecorder.isTypeSupported('audio/webm')) return 'audio/webm'
   if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) return 'audio/ogg;codecs=opus'
   return ''
+}
+
+function getAudioExtension(mimeType) {
+  const normalized = String(mimeType || '').toLowerCase()
+  if (normalized.includes('mp4')) return 'm4a'
+  if (normalized.includes('aac')) return 'aac'
+  if (normalized.includes('ogg')) return 'ogg'
+  return 'webm'
+}
+
+function getCompressedImageName(fileName) {
+  const baseName = String(fileName || 'image')
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^\wа-яА-ЯёЁ-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+
+  return `${baseName || 'image'}-720p.jpg`
+}
+
+function loadImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+    const image = new Image()
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      resolve(image)
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('IMAGE_LOAD_FAILED'))
+    }
+    image.src = objectUrl
+  })
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob)
+      } else {
+        reject(new Error('IMAGE_COMPRESS_FAILED'))
+      }
+    }, type, quality)
+  })
+}
+
+async function compressImageIfNeeded(file) {
+  const type = String(file?.type || '').toLowerCase()
+  if (!type.startsWith('image/')) return file
+  if (type.includes('gif') || type.includes('svg')) return file
+
+  try {
+    const image = await loadImageElement(file)
+    const width = image.naturalWidth || image.width
+    const height = image.naturalHeight || image.height
+    if (!width || !height) return file
+
+    const scale = Math.min(1, IMAGE_MAX_WIDTH / width, IMAGE_MAX_HEIGHT / height)
+    if (scale >= 1 && file.size < 900 * 1024) return file
+
+    const targetWidth = Math.max(1, Math.round(width * scale))
+    const targetHeight = Math.max(1, Math.round(height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = targetWidth
+    canvas.height = targetHeight
+
+    const context = canvas.getContext('2d', { alpha: false })
+    if (!context) return file
+
+    context.drawImage(image, 0, 0, targetWidth, targetHeight)
+    const blob = await canvasToBlob(canvas, 'image/jpeg', IMAGE_QUALITY)
+    if (blob.size >= file.size) return file
+
+    return new File([blob], getCompressedImageName(file.name), {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    })
+  } catch {
+    return file
+  }
 }
 
 async function getMicrophonePermissionState() {
@@ -154,7 +241,7 @@ async function startRecording(pointerX) {
       isSendingVoice.value = true
       try {
         const blob = new Blob(localChunks, { type: localMime })
-        const extension = localMime.includes('ogg') ? 'ogg' : 'webm'
+        const extension = getAudioExtension(localMime)
         await emit('send-voice', {
           blob,
           durationSeconds: duration,
@@ -229,7 +316,8 @@ async function onMediaPicked(event) {
   sendingError.value = ''
 
   try {
-    await emit('send-media', file)
+    const preparedFile = await compressImageIfNeeded(file)
+    await emit('send-media', preparedFile)
   } catch {
     sendingError.value = 'Не удалось отправить файл.'
   } finally {

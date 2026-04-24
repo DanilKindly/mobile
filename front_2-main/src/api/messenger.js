@@ -122,6 +122,7 @@ function normalizeRealtimeEvent(rawEvent) {
 
 function resolveAssetUrl(path) {
   if (!path) return null
+  if (/^(blob|data):/i.test(path)) return path
   if (/^https?:\/\//i.test(path)) return path
   if (BACKEND_BASE) {
     return new URL(path, BACKEND_BASE).toString()
@@ -166,6 +167,7 @@ const joinedChatGroups = new Set()
 let currentPresenceUserId = null
 let rawHandlersAttached = false
 const realtimeSubscribers = new Map()
+const protectedAssetUrlCache = new Map()
 
 function emitRealtime(eventType, payload) {
   const set = realtimeSubscribers.get(eventType)
@@ -316,6 +318,20 @@ function persistCurrentUser(currentUser) {
 }
 
 export const messengerApi = {
+  async getProtectedAssetObjectUrl(sourceUrl) {
+    if (!sourceUrl) return null
+    if (/^(blob|data):/i.test(sourceUrl)) return sourceUrl
+
+    const cacheKey = String(sourceUrl)
+    const cached = protectedAssetUrlCache.get(cacheKey)
+    if (cached) return cached
+
+    const response = await api.get(sourceUrl, { responseType: 'blob' })
+    const objectUrl = URL.createObjectURL(response.data)
+    protectedAssetUrlCache.set(cacheKey, objectUrl)
+    return objectUrl
+  },
+
   async getUsers() {
     const response = await api.get('/api/users')
     return (response.data ?? []).map(normalizeUser)
@@ -539,7 +555,7 @@ export const messengerApi = {
     return normalizeMessage(response.data ?? {})
   },
 
-  async sendMediaMessage(chatId, senderUserId, file) {
+  async sendMediaMessage(chatId, senderUserId, file, options = {}) {
     const formData = new FormData()
     formData.append('senderUserId', senderUserId)
     formData.append('file', file, file.name)
@@ -547,7 +563,10 @@ export const messengerApi = {
     const response = await api.post(
       `/api/chats/${chatId}/messages/media`,
       formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: options.onUploadProgress,
+      },
     )
     return normalizeMessage(response.data ?? {})
   },

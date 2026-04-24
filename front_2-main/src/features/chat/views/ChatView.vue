@@ -652,7 +652,10 @@ async function handleSendVoice({ blob, durationSeconds, fileName }) {
 
   const senderUserId = getCurrentUserId()
   try {
-    await messengerApi.sendVoiceMessage(chatId.value, senderUserId, blob, durationSeconds, fileName)
+    const message = await messengerApi.sendVoiceMessage(chatId.value, senderUserId, blob, durationSeconds, fileName)
+    messageStore.addBackendMessageToState(message, senderUserId)
+    chatStore.updatePreviewFromMessage(chatId.value, message, senderUserId)
+    await requestAutoPin('voice-send')
   } catch (e) {
     console.error('Failed to send voice message:', e)
     throw e
@@ -663,9 +666,47 @@ async function handleSendMedia(file) {
   if (!chatId.value || !currentUser.value) return
 
   const senderUserId = getCurrentUserId()
+  const clientMessageId = crypto.randomUUID()
+  const sentAtClient = new Date().toISOString()
+  const localUrl = URL.createObjectURL(file)
+
+  messageStore.addOptimisticMediaMessage(
+    chatId.value,
+    {
+      clientMessageId,
+      senderUserId,
+      sentAtClient,
+      localUrl,
+      contentType: file.type || 'application/octet-stream',
+      fileName: file.name,
+      sizeBytes: file.size,
+    },
+    senderUserId,
+  )
+  chatStore.updatePreviewFromMessage(
+    chatId.value,
+    { senderUserId, type: 2, sentAt: sentAtClient },
+    senderUserId,
+  )
+  await requestAutoPin('media-send-optimistic')
+
   try {
-    await messengerApi.sendMediaMessage(chatId.value, senderUserId, file)
+    const message = await messengerApi.sendMediaMessage(chatId.value, senderUserId, file, {
+      onUploadProgress: (event) => {
+        const total = Number(event.total || file.size || 0)
+        if (!total) return
+        messageStore.updatePendingUploadProgress(
+          chatId.value,
+          clientMessageId,
+          (Number(event.loaded || 0) / total) * 100,
+        )
+      },
+    })
+    messageStore.markPendingMessageAsSent(chatId.value, clientMessageId, message, senderUserId)
+    chatStore.updatePreviewFromMessage(chatId.value, message, senderUserId)
+    await requestAutoPin('media-send-complete')
   } catch (e) {
+    messageStore.markPendingMessageAsFailed(chatId.value, clientMessageId)
     console.error('Failed to send media message:', e)
     throw e
   }
