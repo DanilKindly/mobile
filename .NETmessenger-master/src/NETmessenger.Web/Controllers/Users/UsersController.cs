@@ -21,9 +21,38 @@ public class UsersController(
 
     [HttpGet]
     [Authorize]
-    public async Task<ActionResult<IReadOnlyCollection<GetUserDto>>> GetAll(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
     {
-        var users = await userService.GetAllAsync(cancellationToken);
+        await AuditAsync(
+            "user_directory_list_denied",
+            "denied",
+            User.TryGetUserId(out var userId) ? userId : null,
+            "users",
+            "all",
+            "mass user directory is disabled",
+            cancellationToken);
+
+        return StatusCode(StatusCodes.Status410Gone, new { error = "User directory is disabled." });
+    }
+
+    [HttpGet("participants")]
+    [Authorize]
+    public async Task<ActionResult<IReadOnlyCollection<GetUserDto>>> GetVisibleParticipants(
+        [FromQuery] string ids,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = User.GetRequiredUserId();
+        if (await abuseGuard.IsBlockedAsync(currentUserId, cancellationToken))
+        {
+            await AuditAsync("blocked_user_request", "denied", currentUserId, "users", "participants", "user is blocked", cancellationToken);
+            return Forbid();
+        }
+
+        var users = await userService.GetVisibleParticipantsAsync(
+            currentUserId,
+            ParseGuidList(ids),
+            cancellationToken);
+
         return Ok(users);
     }
 
@@ -184,5 +213,21 @@ public class UsersController(
             IsEssential = true,
             Expires = DateTime.UtcNow.AddHours(expirationHours)
         });
+    }
+
+    private static IReadOnlyCollection<Guid> ParseGuidList(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return Array.Empty<Guid>();
+        }
+
+        return raw
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => Guid.TryParse(x, out var id) ? id : Guid.Empty)
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .Take(100)
+            .ToArray();
     }
 }

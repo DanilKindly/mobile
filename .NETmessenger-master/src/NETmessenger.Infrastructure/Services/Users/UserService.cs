@@ -38,12 +38,46 @@ public sealed class UserService : IUserService
     public async Task<IReadOnlyCollection<GetUserDto>> SearchByLoginAsync(string login, CancellationToken cancellationToken)
     {
         var normalizedLogin = NormalizeRequired(login, "Login is required.").ToLowerInvariant();
+        ValidateLogin(normalizedLogin);
 
         return await _dbContext.Users
             .AsNoTracking()
-            .Where(u => u.Login.ToLower().Contains(normalizedLogin))
+            .Where(u => u.Login.ToLower() == normalizedLogin)
             .OrderBy(u => u.Login)
-            .Take(20)
+            .Take(1)
+            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyCollection<GetUserDto>> GetVisibleParticipantsAsync(
+        Guid currentUserId,
+        IReadOnlyCollection<Guid> requestedUserIds,
+        CancellationToken cancellationToken)
+    {
+        var normalizedIds = requestedUserIds
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .Take(100)
+            .ToArray();
+
+        if (currentUserId == Guid.Empty || normalizedIds.Length == 0)
+        {
+            return Array.Empty<GetUserDto>();
+        }
+
+        var visibleUserIds = await _dbContext.Chats
+            .AsNoTracking()
+            .Where(c => c.Participants.Any(p => p.Id == currentUserId))
+            .SelectMany(c => c.Participants)
+            .Where(p => normalizedIds.Contains(p.Id))
+            .Select(p => p.Id)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+
+        return await _dbContext.Users
+            .AsNoTracking()
+            .Where(u => visibleUserIds.Contains(u.Id))
+            .OrderBy(u => u.Username)
             .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
             .ToArrayAsync(cancellationToken);
     }

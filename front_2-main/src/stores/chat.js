@@ -201,22 +201,35 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
-  async function ensureUsers(forceRefresh = false) {
+  function collectParticipantIds(backendChats = []) {
+    return [
+      ...new Set(
+        backendChats
+          .flatMap((chat) => chat.participantUserIds ?? chat.ParticipantUserIds ?? [])
+          .map((id) => String(id || '').trim())
+          .filter(Boolean),
+      ),
+    ]
+  }
+
+  async function ensureUsers(forceRefresh = false, participantIds = []) {
     const now = Date.now()
     const hasUsers = Object.keys(usersById.value).length > 0
     const isFresh = now - usersFetchedAt.value < 30_000
+    const requestedIds = collectParticipantIds([{ participantUserIds: participantIds }])
+    const hasRequestedUsers = requestedIds.every((id) => usersById.value[normalizeId(id)])
 
-    if (!forceRefresh && hasUsers && isFresh) {
+    if (!forceRefresh && hasUsers && isFresh && hasRequestedUsers) {
       return Object.values(usersById.value)
     }
 
-    const users = await messengerApi.getUsers()
+    const users = await messengerApi.getVisibleParticipants(requestedIds)
     usersById.value = users.reduce((acc, user) => {
       acc[normalizeId(user.userId)] = user
       return acc
-    }, {})
+    }, { ...usersById.value })
     usersFetchedAt.value = now
-    return users
+    return Object.values(usersById.value)
   }
 
   async function loadChats(options = {}) {
@@ -253,6 +266,7 @@ export const useChatStore = defineStore('chat', () => {
 
       const backendChats = await messengerApi.getChatsByUser(currentUserId)
       chatsFetchedAt.value = now
+      const participantIds = collectParticipantIds(backendChats)
       const liveById = new Map(chats.value.map((chat) => [normalizeId(chat.id), chat]))
 
       // Render chat list instantly using cached users (if available).
@@ -262,8 +276,8 @@ export const useChatStore = defineStore('chat', () => {
       chats.value = sortChatsByLastMessage(dedupeDirectChats(mappedChats))
       syncUnreadCountsFromRenderedChats()
 
-      // Hydrate user names in background so UI is not blocked by /api/users.
-      ensureUsers(forceUsersRefresh)
+      // Hydrate only visible participants; the full user directory is intentionally unavailable.
+      ensureUsers(forceUsersRefresh, participantIds)
         .then((allUsers) => {
           if (!currentUser.value || normalizeId(currentUser.value.userId) !== normalizeId(currentUserId)) {
             return

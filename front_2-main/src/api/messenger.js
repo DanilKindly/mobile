@@ -321,6 +321,16 @@ export const messengerApi = {
     return (response.data ?? []).map(normalizeUser)
   },
 
+  async getVisibleParticipants(userIds = []) {
+    const ids = [...new Set((userIds || []).filter(Boolean).map(String))]
+    if (ids.length === 0) return []
+
+    const response = await api.get('/api/users/participants', {
+      params: { ids: ids.join(',') },
+    })
+    return (response.data ?? []).map(normalizeUser)
+  },
+
   async getPushVapidPublicKey() {
     try {
       const response = await api.get('/api/push/public-key')
