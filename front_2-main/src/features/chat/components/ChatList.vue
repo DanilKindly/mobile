@@ -82,7 +82,7 @@ function openProfile() {
 
 function displayPreview(chat) {
   const value = String(chat?.lastMessage || '').trim()
-  return value || 'Нет сообщений'
+  return value || 'РќРµС‚ СЃРѕРѕР±С‰РµРЅРёР№'
 }
 
 function formatChatTime(value) {
@@ -105,12 +105,12 @@ function formatChatTime(value) {
 }
 
 function pushStatusLabel(value) {
-  if (value === 'subscribed') return 'подключены'
-  if (value === 'unsupported') return 'не поддерживаются'
-  if (value === 'permission_denied') return 'запрещены'
-  if (value === 'no_user') return 'нужен вход'
-  if (value === 'push_not_configured') return 'сервер не настроен'
-  return 'ошибка подключения'
+  if (value === 'subscribed') return 'РїРѕРґРєР»СЋС‡РµРЅС‹'
+  if (value === 'unsupported') return 'РЅРµ РїРѕРґРґРµСЂР¶РёРІР°СЋС‚СЃСЏ'
+  if (value === 'permission_denied') return 'Р·Р°РїСЂРµС‰РµРЅС‹'
+  if (value === 'no_user') return 'РЅСѓР¶РµРЅ РІС…РѕРґ'
+  if (value === 'push_not_configured') return 'СЃРµСЂРІРµСЂ РЅРµ РЅР°СЃС‚СЂРѕРµРЅ'
+  return 'РѕС€РёР±РєР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ'
 }
 </script>
 
@@ -131,12 +131,12 @@ function pushStatusLabel(value) {
       ]"
     >
       <div class="flex items-center justify-between mb-3">
-        <h2 :class="['text-[20px] font-semibold tracking-tight', darkTheme ? 'text-white' : 'text-black']">Чаты</h2>
+        <h2 :class="['text-[20px] font-semibold tracking-tight', darkTheme ? 'text-white' : 'text-black']">Р§Р°С‚С‹</h2>
         <button
           class="text-xs px-3 py-1.5 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-colors"
           @click="createChat"
         >
-          + Чат
+          + Р§Р°С‚
         </button>
       </div>
       <div v-if="currentUser" class="flex items-center gap-2.5">
@@ -154,7 +154,7 @@ function pushStatusLabel(value) {
           />
           <div class="flex-1 min-w-0">
             <div class="text-[13px] font-semibold truncate" :class="darkTheme ? 'text-white' : 'text-gray-900'">
-              {{ currentUser.username || 'Пользователь' }}
+              {{ currentUser.username || 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ' }}
             </div>
             <div class="text-[12px] truncate" :class="darkTheme ? 'text-gray-400' : 'text-gray-500'">
               @{{ currentUser.login || '-' }}
@@ -164,7 +164,7 @@ function pushStatusLabel(value) {
         <button
           class="text-xs px-2 py-1 rounded-full hover:opacity-80"
           :class="darkTheme ? 'text-gray-400 hover:bg-[#182533]' : 'text-gray-500 hover:bg-gray-100'"
-          title="Выйти"
+          title="Р’С‹Р№С‚Рё"
           @click="logout"
         >
           ?
@@ -177,7 +177,7 @@ function pushStatusLabel(value) {
         :class="darkTheme ? 'border-[#263748] bg-[#141f2b]' : 'border-gray-200 bg-gray-50'"
       >
         <div class="flex items-center justify-between gap-2">
-          <span class="text-xs font-medium" :class="darkTheme ? 'text-gray-200' : 'text-gray-700'">Уведомления</span>
+          <span class="text-xs font-medium" :class="darkTheme ? 'text-gray-200' : 'text-gray-700'">РЈРІРµРґРѕРјР»РµРЅРёСЏ</span>
           <span class="text-[11px]" :class="pushStatus === 'subscribed' ? 'text-green-500' : (darkTheme ? 'text-amber-300' : 'text-amber-600')">
             {{ pushStatusLabel(pushStatus) }}
           </span>
@@ -187,7 +187,7 @@ function pushStatusLabel(value) {
           class="mt-1 text-[11px]"
           :class="darkTheme ? 'text-amber-300' : 'text-amber-700'"
         >
-          Для iPhone открой через «На экран Домой».
+          Р”Р»СЏ iPhone РѕС‚РєСЂРѕР№ С‡РµСЂРµР· В«РќР° СЌРєСЂР°РЅ Р”РѕРјРѕР№В».
         </div>
         <div
           v-if="pushEndpointMasked"
@@ -209,7 +209,7 @@ function pushStatusLabel(value) {
           :disabled="pushBusy"
           @click="reconnectPush"
         >
-          {{ pushBusy ? 'Подключаем...' : 'Переподключить уведомления' }}
+          {{ pushBusy ? 'РџРѕРґРєР»СЋС‡Р°РµРј...' : 'РџРµСЂРµРїРѕРґРєР»СЋС‡РёС‚СЊ СѓРІРµРґРѕРјР»РµРЅРёСЏ' }}
         </button>
       </div>
     </div>
@@ -272,7 +272,7 @@ function pushStatusLabel(value) {
       ]"
     >
       <div class="flex items-center justify-between gap-[10px]">
-        <span :class="['text-[14px]', darkTheme ? 'text-[#6D7F8F]' : 'text-[#666]']">Темная тема</span>
+        <span :class="['text-[14px]', darkTheme ? 'text-[#6D7F8F]' : 'text-[#666]']">РўРµРјРЅР°СЏ С‚РµРјР°</span>
         <button
           class="relative w-[50px] h-[26px] rounded-[13px] transition-colors"
           :class="darkTheme ? 'bg-[#4CAF50]' : 'bg-[#ccc]'"
