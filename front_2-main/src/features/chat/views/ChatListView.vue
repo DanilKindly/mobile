@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ChatList from '../components/ChatList.vue'
 import UserSearchDialog from '../components/UserSearchDialog.vue'
+import ProfilePanel from '../components/ProfilePanel.vue'
 import { useChatStore } from '@/stores/chat'
 import { usePushStore } from '@/stores/push'
 import { useThemeStore } from '@/stores/theme'
@@ -26,6 +27,7 @@ const pushDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_PUSH_DEBUG_
 
 const currentUser = computed(() => chatStore.currentUser)
 const showUserSearch = ref(false)
+const showProfilePanel = ref(false)
 let realtimeUnsubscribers = []
 
 function getMessagePreview(message) {
@@ -156,6 +158,10 @@ async function handleReconnectPush() {
   await pushStore.reconnectPush()
 }
 
+function handleProfileUpdated(profile) {
+  chatStore.applyUserProfile(profile)
+}
+
 onMounted(async () => {
   const rememberedUser = messengerApi.getCurrentUser()
   if (!rememberedUser) {
@@ -213,6 +219,7 @@ onBeforeUnmount(() => {
       @logout="handleLogout"
       @create-chat="handleCreateChat"
       @reconnect-push="handleReconnectPush"
+      @open-profile="showProfilePanel = true"
     />
 
     <UserSearchDialog
@@ -220,6 +227,14 @@ onBeforeUnmount(() => {
       :dark-theme="themeStore.darkTheme"
       @close="showUserSearch = false"
       @select-login="selectLoginAndCreateChat"
+    />
+
+    <ProfilePanel
+      v-if="showProfilePanel && currentUser"
+      :current-user="currentUser"
+      :dark-theme="themeStore.darkTheme"
+      @close="showProfilePanel = false"
+      @profile-updated="handleProfileUpdated"
     />
   </div>
 </template>

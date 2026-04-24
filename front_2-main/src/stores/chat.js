@@ -119,6 +119,7 @@ export const useChatStore = defineStore('chat', () => {
       const participantIds = c.participantUserIds ?? c.ParticipantUserIds ?? []
 
       let displayName = name || 'Без названия'
+      let avatarUrl = null
 
       if (!isGroup) {
         const otherUserId = participantIds.find((id) => normalizeId(id) !== normalizedCurrentId)
@@ -126,6 +127,7 @@ export const useChatStore = defineStore('chat', () => {
         if (otherUserId) {
           const otherUser = allUsers.find((u) => normalizeId(u.userId) === normalizeId(otherUserId))
           displayName = otherUser?.username || otherUser?.login || 'Собеседник'
+          avatarUrl = otherUser?.avatarUrl || null
         } else {
           displayName = 'Собеседник'
         }
@@ -148,6 +150,7 @@ export const useChatStore = defineStore('chat', () => {
         lastMessageType: c.lastMessageType ?? c.LastMessageType ?? null,
         participantUserIds: participantIds,
         isGroup,
+        avatarUrl: avatarUrl || null,
         // Keep unread count nullable here so live fallback is preserved on preview refreshes.
         unreadCount: c.unreadCount ?? c.UnreadCount ?? null,
       }
@@ -403,6 +406,42 @@ export const useChatStore = defineStore('chat', () => {
     return usersById.value[normalizeId(userId)] || null
   }
 
+  function applyUserProfile(profile) {
+    if (!profile?.userId) return
+
+    const normalizedUserId = normalizeId(profile.userId)
+    usersById.value = {
+      ...usersById.value,
+      [normalizedUserId]: {
+        ...(usersById.value[normalizedUserId] || {}),
+        ...profile,
+      },
+    }
+
+    if (currentUser.value && normalizeId(currentUser.value.userId) === normalizedUserId) {
+      currentUser.value = messengerApi.updateCurrentUser({
+        ...currentUser.value,
+        ...profile,
+      })
+    }
+
+    chats.value = chats.value.map((chat) => {
+      if (!chat.participantUserIds?.some((id) => normalizeId(id) === normalizedUserId)) {
+        return chat
+      }
+
+      if (chat.isGroup || currentUser.value && normalizeId(currentUser.value.userId) === normalizedUserId) {
+        return chat
+      }
+
+      return {
+        ...chat,
+        name: profile.username || profile.login || chat.name,
+        avatarUrl: profile.avatarUrl || null,
+      }
+    })
+  }
+
   function applyChatPreview(chatDto, currentUserId = null) {
     if (!chatDto) return
 
@@ -454,6 +493,7 @@ export const useChatStore = defineStore('chat', () => {
     resetUnreadCount,
     getChatById,
     getUserById,
+    applyUserProfile,
     ensureUsers,
   }
 })

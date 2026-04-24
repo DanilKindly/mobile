@@ -29,5 +29,14 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .HasColumnType("timestamp with time zone")
             .HasDefaultValueSql("NOW()")
             .IsRequired();
+
+        builder.Property(u => u.AvatarUrl)
+            .HasMaxLength(512);
+
+        builder.Property(u => u.AvatarContentType)
+            .HasMaxLength(100);
+
+        builder.Property(u => u.AvatarUpdatedAt)
+            .HasColumnType("timestamp with time zone");
     }
 }

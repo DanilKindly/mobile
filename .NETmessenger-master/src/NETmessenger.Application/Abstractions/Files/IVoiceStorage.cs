@@ -23,3 +23,16 @@ public interface IMediaStorage
 }
 
 public record StoredMediaFile(string Url, long SizeBytes, string ContentType, string FileName);
+
+public interface IAvatarStorage
+{
+    Task<StoredAvatarFile> SaveAsync(
+        Stream fileStream,
+        string originalFileName,
+        string contentType,
+        CancellationToken cancellationToken);
+
+    Task DeleteAsync(string? storedUrl, CancellationToken cancellationToken);
+}
+
+public record StoredAvatarFile(string Url, long SizeBytes, string ContentType);

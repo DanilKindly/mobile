@@ -44,11 +44,18 @@ api.interceptors.response.use(
 )
 
 function normalizeUser(user) {
+  const avatarUrl = user.avatarUrl ?? user.AvatarUrl ?? null
+  const avatarUpdatedAt = user.avatarUpdatedAt ?? user.AvatarUpdatedAt ?? null
+
   return {
     userId: user.userId ?? user.UserId,
     login: user.login ?? user.Login,
     username: user.username ?? user.Username,
     lastSeenAt: user.lastSeenAt ?? user.LastSeenAt ?? null,
+    avatarUrl: avatarUrl && avatarUpdatedAt
+      ? `${avatarUrl}${String(avatarUrl).includes('?') ? '&' : '?'}v=${encodeURIComponent(avatarUpdatedAt)}`
+      : avatarUrl,
+    avatarUpdatedAt,
   }
 }
 
@@ -344,6 +351,56 @@ export const messengerApi = {
   async getUsers() {
     const response = await api.get('/api/users')
     return (response.data ?? []).map(normalizeUser)
+  },
+
+  async getCurrentProfile() {
+    const response = await api.get('/api/users/me')
+    const profile = normalizeUser(response.data ?? {})
+    const current = this.getCurrentUser()
+    if (current?.token) {
+      profile.token = current.token
+    }
+    persistCurrentUser(profile)
+    return profile
+  },
+
+  async uploadAvatar(file) {
+    const formData = new FormData()
+    formData.append('avatar', file, file.name || 'avatar.jpg')
+    const response = await api.put('/api/users/me/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    const profile = normalizeUser(response.data ?? {})
+    const current = this.getCurrentUser()
+    if (current?.token) {
+      profile.token = current.token
+    }
+    persistCurrentUser(profile)
+    return profile
+  },
+
+  async deleteAvatar() {
+    const response = await api.delete('/api/users/me/avatar')
+    const profile = normalizeUser(response.data ?? {})
+    const current = this.getCurrentUser()
+    if (current?.token) {
+      profile.token = current.token
+    }
+    persistCurrentUser(profile)
+    return profile
+  },
+
+  updateCurrentUser(profile) {
+    const current = this.getCurrentUser()
+    const next = {
+      ...(current || {}),
+      ...normalizeUser(profile || {}),
+    }
+    if (current?.token && !next.token) {
+      next.token = current.token
+    }
+    persistCurrentUser(next)
+    return next
   },
 
   async getVisibleParticipants(userIds = []) {

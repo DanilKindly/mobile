@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NETmessenger.Application.Abstractions.Auth;
+using NETmessenger.Application.Abstractions.Files;
 using NETmessenger.Application.Abstractions.Users;
 using NETmessenger.Application.Exceptions;
 using NETmessenger.Contracts.Users;
@@ -11,19 +12,36 @@ namespace NETmessenger.Infrastructure.Services.Users;
 public sealed class UserService : IUserService
 {
     private const int MinPasswordLength = 6;
+    private const long MaxAvatarSizeBytes = 5 * 1024 * 1024;
+    private static readonly HashSet<string> AllowedAvatarContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+    };
+    private static readonly HashSet<string> AllowedAvatarExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+    };
 
     private readonly AppDbContext _dbContext;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtService _jwtService;
+    private readonly IAvatarStorage _avatarStorage;
 
     public UserService(
         AppDbContext dbContext,
         IPasswordHasher passwordHasher,
-        IJwtService jwtService)
+        IJwtService jwtService,
+        IAvatarStorage avatarStorage)
     {
         _dbContext = dbContext;
         _passwordHasher = passwordHasher;
         _jwtService = jwtService;
+        _avatarStorage = avatarStorage;
     }
 
     public async Task<IReadOnlyCollection<GetUserDto>> GetAllAsync(CancellationToken cancellationToken)
@@ -31,7 +49,7 @@ public sealed class UserService : IUserService
         return await _dbContext.Users
             .AsNoTracking()
             .OrderBy(u => u.Login)
-            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
+            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt, u.AvatarUrl, u.AvatarUpdatedAt))
             .ToArrayAsync(cancellationToken);
     }
 
@@ -45,7 +63,7 @@ public sealed class UserService : IUserService
             .Where(u => u.Login.ToLower() == normalizedLogin)
             .OrderBy(u => u.Login)
             .Take(1)
-            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
+            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt, u.AvatarUrl, u.AvatarUpdatedAt))
             .ToArrayAsync(cancellationToken);
     }
 
@@ -78,7 +96,7 @@ public sealed class UserService : IUserService
             .AsNoTracking()
             .Where(u => visibleUserIds.Contains(u.Id))
             .OrderBy(u => u.Username)
-            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
+            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt, u.AvatarUrl, u.AvatarUpdatedAt))
             .ToArrayAsync(cancellationToken);
     }
 
@@ -87,7 +105,7 @@ public sealed class UserService : IUserService
         return await _dbContext.Users
             .AsNoTracking()
             .Where(u => u.Id == userId)
-            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt))
+            .Select(u => new GetUserDto(u.Id, u.Login, u.Username, u.LastSeenAt, u.AvatarUrl, u.AvatarUpdatedAt))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -115,7 +133,7 @@ public sealed class UserService : IUserService
 
         var token = _jwtService.GenerateToken(user);
 
-        return new AuthResponseDto(user.Id, user.Login, user.Username, token);
+        return new AuthResponseDto(user.Id, user.Login, user.Username, token, user.LastSeenAt, user.AvatarUrl, user.AvatarUpdatedAt);
     }
 
     public async Task<AuthResponseDto> LoginAsync(LoginUserDto dto, CancellationToken cancellationToken)
@@ -141,7 +159,7 @@ public sealed class UserService : IUserService
 
         var token = _jwtService.GenerateToken(user);
 
-        return new AuthResponseDto(user.Id, user.Login, user.Username, token);
+        return new AuthResponseDto(user.Id, user.Login, user.Username, token, user.LastSeenAt, user.AvatarUrl, user.AvatarUpdatedAt);
     }
 
     public async Task<GetUserDto> UpdateAsync(Guid userId, UpdateUserDto dto, CancellationToken cancellationToken)
@@ -160,6 +178,52 @@ public sealed class UserService : IUserService
         user.Username = username;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return MapToDto(user);
+    }
+
+    public async Task<GetUserDto> UpdateAvatarAsync(
+        Guid userId,
+        Stream avatarStream,
+        string originalFileName,
+        string contentType,
+        long sizeBytes,
+        CancellationToken cancellationToken)
+    {
+        ValidateAvatar(originalFileName, contentType, sizeBytes);
+
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken)
+                   ?? throw new ResourceNotFoundException($"User '{userId}' was not found.");
+
+        var oldAvatarUrl = user.AvatarUrl;
+        var stored = await _avatarStorage.SaveAsync(
+            avatarStream,
+            originalFileName,
+            contentType,
+            cancellationToken);
+
+        user.AvatarUrl = stored.Url;
+        user.AvatarContentType = stored.ContentType;
+        user.AvatarUpdatedAt = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await _avatarStorage.DeleteAsync(oldAvatarUrl, cancellationToken);
+
+        return MapToDto(user);
+    }
+
+    public async Task<GetUserDto> DeleteAvatarAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken)
+                   ?? throw new ResourceNotFoundException($"User '{userId}' was not found.");
+
+        var oldAvatarUrl = user.AvatarUrl;
+        user.AvatarUrl = null;
+        user.AvatarContentType = null;
+        user.AvatarUpdatedAt = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await _avatarStorage.DeleteAsync(oldAvatarUrl, cancellationToken);
 
         return MapToDto(user);
     }
@@ -221,6 +285,30 @@ public sealed class UserService : IUserService
         }
     }
 
+    private static void ValidateAvatar(string originalFileName, string contentType, long sizeBytes)
+    {
+        if (sizeBytes <= 0)
+        {
+            throw new DomainValidationException("Avatar file is required.");
+        }
+
+        if (sizeBytes > MaxAvatarSizeBytes)
+        {
+            throw new DomainValidationException("Avatar file is too large.");
+        }
+
+        if (string.IsNullOrWhiteSpace(contentType) || !AllowedAvatarContentTypes.Contains(contentType))
+        {
+            throw new DomainValidationException("Avatar must be a JPEG, PNG or WebP image.");
+        }
+
+        var extension = Path.GetExtension(originalFileName);
+        if (string.IsNullOrWhiteSpace(extension) || !AllowedAvatarExtensions.Contains(extension))
+        {
+            throw new DomainValidationException("Avatar file extension is not allowed.");
+        }
+    }
+
     private static string NormalizeRequired(string value, string errorMessage)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -233,6 +321,8 @@ public sealed class UserService : IUserService
 
     private static GetUserDto MapToDto(User user)
     {
-        return new GetUserDto(user.Id, user.Login, user.Username, user.LastSeenAt);
+        return new GetUserDto(user.Id, user.Login, user.Username, user.LastSeenAt, user.AvatarUrl, user.AvatarUpdatedAt);
     }
 }
+
+

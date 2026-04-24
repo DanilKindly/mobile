@@ -1,5 +1,6 @@
-п»ї<script setup>
+<script setup>
 import { useThemeStore } from '@/stores/theme'
+import UserAvatar from './UserAvatar.vue'
 
 const props = defineProps({
   chats: {
@@ -44,7 +45,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['select-chat', 'logout', 'create-chat', 'reconnect-push'])
+const emit = defineEmits(['select-chat', 'logout', 'create-chat', 'reconnect-push', 'open-profile'])
 const themeStore = useThemeStore()
 
 function normalizeId(id) {
@@ -75,9 +76,13 @@ function reconnectPush() {
   emit('reconnect-push')
 }
 
+function openProfile() {
+  emit('open-profile')
+}
+
 function displayPreview(chat) {
   const value = String(chat?.lastMessage || '').trim()
-  return value || 'РќРµС‚ СЃРѕРѕР±С‰РµРЅРёР№'
+  return value || 'Нет сообщений'
 }
 
 function formatChatTime(value) {
@@ -100,12 +105,12 @@ function formatChatTime(value) {
 }
 
 function pushStatusLabel(value) {
-  if (value === 'subscribed') return 'РїРѕРґРєР»СЋС‡РµРЅС‹'
-  if (value === 'unsupported') return 'РЅРµ РїРѕРґРґРµСЂР¶РёРІР°СЋС‚СЃСЏ'
-  if (value === 'permission_denied') return 'Р·Р°РїСЂРµС‰РµРЅС‹'
-  if (value === 'no_user') return 'РЅСѓР¶РµРЅ РІС…РѕРґ'
-  if (value === 'push_not_configured') return 'СЃРµСЂРІРµСЂ РЅРµ РЅР°СЃС‚СЂРѕРµРЅ'
-  return 'РѕС€РёР±РєР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ'
+  if (value === 'subscribed') return 'подключены'
+  if (value === 'unsupported') return 'не поддерживаются'
+  if (value === 'permission_denied') return 'запрещены'
+  if (value === 'no_user') return 'нужен вход'
+  if (value === 'push_not_configured') return 'сервер не настроен'
+  return 'ошибка подключения'
 }
 </script>
 
@@ -126,35 +131,43 @@ function pushStatusLabel(value) {
       ]"
     >
       <div class="flex items-center justify-between mb-3">
-        <h2 :class="['text-[20px] font-semibold tracking-tight', darkTheme ? 'text-white' : 'text-black']">Р§Р°С‚С‹</h2>
+        <h2 :class="['text-[20px] font-semibold tracking-tight', darkTheme ? 'text-white' : 'text-black']">Чаты</h2>
         <button
           class="text-xs px-3 py-1.5 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-colors"
           @click="createChat"
         >
-          + Р§Р°С‚
+          + Чат
         </button>
       </div>
       <div v-if="currentUser" class="flex items-center gap-2.5">
-        <div
-          class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-sm font-semibold"
+        <button
+          type="button"
+          class="flex items-center gap-2.5 min-w-0 flex-1 text-left rounded-xl -ml-1 px-1 py-1 transition-colors"
+          :class="darkTheme ? 'hover:bg-[#1b2835]' : 'hover:bg-gray-100'"
+          @click="openProfile"
         >
-          {{ (currentUser.username || currentUser.login || '?')[0].toUpperCase() }}
-        </div>
-        <div class="flex-1 min-w-0">
-          <div class="text-[13px] font-semibold truncate" :class="darkTheme ? 'text-white' : 'text-gray-900'">
-            {{ currentUser.username || 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ' }}
+          <UserAvatar
+            :avatar-url="currentUser.avatarUrl"
+            :name="currentUser.username || currentUser.login"
+            size-class="w-9 h-9 text-sm"
+            :dark-theme="darkTheme"
+          />
+          <div class="flex-1 min-w-0">
+            <div class="text-[13px] font-semibold truncate" :class="darkTheme ? 'text-white' : 'text-gray-900'">
+              {{ currentUser.username || 'Пользователь' }}
+            </div>
+            <div class="text-[12px] truncate" :class="darkTheme ? 'text-gray-400' : 'text-gray-500'">
+              @{{ currentUser.login || '-' }}
+            </div>
           </div>
-          <div class="text-[12px] truncate" :class="darkTheme ? 'text-gray-400' : 'text-gray-500'">
-            @{{ currentUser.login || '-' }}
-          </div>
-        </div>
+        </button>
         <button
           class="text-xs px-2 py-1 rounded-full hover:opacity-80"
           :class="darkTheme ? 'text-gray-400 hover:bg-[#182533]' : 'text-gray-500 hover:bg-gray-100'"
-          title="Р’С‹Р№С‚Рё"
+          title="Выйти"
           @click="logout"
         >
-          Г—
+          ?
         </button>
       </div>
 
@@ -164,7 +177,7 @@ function pushStatusLabel(value) {
         :class="darkTheme ? 'border-[#263748] bg-[#141f2b]' : 'border-gray-200 bg-gray-50'"
       >
         <div class="flex items-center justify-between gap-2">
-          <span class="text-xs font-medium" :class="darkTheme ? 'text-gray-200' : 'text-gray-700'">РЈРІРµРґРѕРјР»РµРЅРёСЏ</span>
+          <span class="text-xs font-medium" :class="darkTheme ? 'text-gray-200' : 'text-gray-700'">Уведомления</span>
           <span class="text-[11px]" :class="pushStatus === 'subscribed' ? 'text-green-500' : (darkTheme ? 'text-amber-300' : 'text-amber-600')">
             {{ pushStatusLabel(pushStatus) }}
           </span>
@@ -174,7 +187,7 @@ function pushStatusLabel(value) {
           class="mt-1 text-[11px]"
           :class="darkTheme ? 'text-amber-300' : 'text-amber-700'"
         >
-          Р”Р»СЏ iPhone РѕС‚РєСЂРѕР№ С‡РµСЂРµР· В«РќР° СЌРєСЂР°РЅ Р”РѕРјРѕР№В».
+          Для iPhone открой через «На экран Домой».
         </div>
         <div
           v-if="pushEndpointMasked"
@@ -196,7 +209,7 @@ function pushStatusLabel(value) {
           :disabled="pushBusy"
           @click="reconnectPush"
         >
-          {{ pushBusy ? 'РџРѕРґРєР»СЋС‡Р°РµРј...' : 'РџРµСЂРµРїРѕРґРєР»СЋС‡РёС‚СЊ СѓРІРµРґРѕРјР»РµРЅРёСЏ' }}
+          {{ pushBusy ? 'Подключаем...' : 'Переподключить уведомления' }}
         </button>
       </div>
     </div>
@@ -218,11 +231,12 @@ function pushStatusLabel(value) {
         @click="selectChat(chat)"
       >
         <div class="flex items-center gap-3 min-w-0 h-full">
-          <div
-            class="w-[48px] h-[48px] rounded-full flex-shrink-0 bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-[17px] font-semibold"
-          >
-            {{ chat.name[0]?.toUpperCase() || '?' }}
-          </div>
+          <UserAvatar
+            :avatar-url="chat.avatarUrl"
+            :name="chat.name"
+            size-class="w-[48px] h-[48px] text-[17px]"
+            :dark-theme="darkTheme"
+          />
           <div class="min-w-0 flex-1 h-full grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[20px_18px] gap-x-2 items-start">
             <div :class="['text-[15px] font-semibold truncate leading-[20px] row-start-1 col-start-1', darkTheme ? 'text-white' : 'text-gray-900']">
               {{ chat.name }}
@@ -258,7 +272,7 @@ function pushStatusLabel(value) {
       ]"
     >
       <div class="flex items-center justify-between gap-[10px]">
-        <span :class="['text-[14px]', darkTheme ? 'text-[#6D7F8F]' : 'text-[#666]']">РўРµРјРЅР°СЏ С‚РµРјР°</span>
+        <span :class="['text-[14px]', darkTheme ? 'text-[#6D7F8F]' : 'text-[#666]']">Темная тема</span>
         <button
           class="relative w-[50px] h-[26px] rounded-[13px] transition-colors"
           :class="darkTheme ? 'bg-[#4CAF50]' : 'bg-[#ccc]'"
@@ -283,3 +297,6 @@ function pushStatusLabel(value) {
   }
 }
 </style>
+
+
+

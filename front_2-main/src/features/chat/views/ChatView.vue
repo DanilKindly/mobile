@@ -6,6 +6,7 @@ import ChatInput from '../components/ChatInput.vue'
 import Message from '../components/Message.vue'
 import ChatList from '../components/ChatList.vue'
 import UserSearchDialog from '../components/UserSearchDialog.vue'
+import ProfilePanel from '../components/ProfilePanel.vue'
 import { useChatStore } from '@/stores/chat'
 import { useMessageStore } from '@/stores/message'
 import { usePushStore } from '@/stores/push'
@@ -37,6 +38,7 @@ const chatId = ref(null)
 const chatName = ref('')
 const activePeerId = ref(null)
 const showUserSearch = ref(false)
+const showProfilePanel = ref(false)
 const messagesContainer = ref(null)
 const stickToBottom = ref(true)
 const openingPhase = ref('idle')
@@ -52,6 +54,8 @@ let olderLoadInFlight = false
 let userStartedOlderHistoryScroll = false
 let isProgrammaticScroll = false
 const hydratingRealtimeByChatId = ref({})
+const activePeer = computed(() => chatStore.getUserById(activePeerId.value) || null)
+const activePeerAvatarUrl = computed(() => activePeer.value?.avatarUrl || chatStore.getChatById(chatId.value)?.avatarUrl || null)
 
 function traceOpenFlow(stage, payload = {}) {
   // Temporary debug trace for open-chat stabilization.
@@ -102,6 +106,11 @@ function handleCreateChat() {
 
 async function handleReconnectPush() {
   await pushStore.reconnectPush()
+}
+
+function handleProfileUpdated(profile) {
+  chatStore.applyUserProfile(profile)
+  currentUser.value = chatStore.currentUser || messengerApi.getCurrentUser()
 }
 
 async function selectLoginAndCreateChat(login) {
@@ -750,6 +759,7 @@ async function handleSendMedia(file) {
       @logout="handleLogout"
       @create-chat="handleCreateChat"
       @reconnect-push="handleReconnectPush"
+      @open-profile="showProfilePanel = true"
     />
 
     <div
@@ -757,7 +767,13 @@ async function handleSendMedia(file) {
       class="flex-1 h-screen flex flex-col overflow-hidden"
       :class="routeChatId ? 'flex' : 'hidden lg:flex'"
     >
-      <ChatHeader :user-name="chatName || 'Собеседник'" :user-state="peerStatusText" :dark-theme="themeStore.darkTheme" :show-back="true" />
+      <ChatHeader
+        :user-name="chatName || 'Собеседник'"
+        :user-state="peerStatusText"
+        :avatar-url="activePeerAvatarUrl"
+        :dark-theme="themeStore.darkTheme"
+        :show-back="true"
+      />
 
       <main
         ref="messagesContainer"
@@ -800,6 +816,14 @@ async function handleSendMedia(file) {
       :dark-theme="themeStore.darkTheme"
       @close="showUserSearch = false"
       @select-login="selectLoginAndCreateChat"
+    />
+
+    <ProfilePanel
+      v-if="showProfilePanel && currentUser"
+      :current-user="currentUser"
+      :dark-theme="themeStore.darkTheme"
+      @close="showProfilePanel = false"
+      @profile-updated="handleProfileUpdated"
     />
   </div>
 </template>

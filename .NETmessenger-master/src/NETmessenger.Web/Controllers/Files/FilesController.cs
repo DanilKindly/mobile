@@ -31,6 +31,13 @@ public class FilesController(
         return ServeStoredFile("voice", fileName, cancellationToken);
     }
 
+    [HttpGet("/avatars/{fileName}")]
+    [EnableRateLimiting("files")]
+    public Task<IActionResult> GetAvatar(string fileName, CancellationToken cancellationToken)
+    {
+        return ServeStoredFile("avatars", fileName, cancellationToken);
+    }
+
     private async Task<IActionResult> ServeStoredFile(
         string bucket,
         string fileName,
@@ -51,8 +58,9 @@ public class FilesController(
 
         var storedUrl = $"/{bucket}/{safeFileName}";
 
-        var access = bucket == "media"
-            ? await dbContext.Messages
+        var access = bucket switch
+        {
+            "media" => await dbContext.Messages
                 .AsNoTracking()
                 .Where(m => m.MediaUrl == storedUrl)
                 .Select(m => new
@@ -60,8 +68,8 @@ public class FilesController(
                     ContentType = m.MediaContentType,
                     Allowed = m.Chat!.Participants.Any(p => p.Id == currentUserId)
                 })
-                .FirstOrDefaultAsync(cancellationToken)
-            : await dbContext.Messages
+                .FirstOrDefaultAsync(cancellationToken),
+            "voice" => await dbContext.Messages
                 .AsNoTracking()
                 .Where(m => m.AudioUrl == storedUrl)
                 .Select(m => new
@@ -69,11 +77,22 @@ public class FilesController(
                     ContentType = m.AudioContentType,
                     Allowed = m.Chat!.Participants.Any(p => p.Id == currentUserId)
                 })
-                .FirstOrDefaultAsync(cancellationToken);
+                .FirstOrDefaultAsync(cancellationToken),
+            "avatars" => await dbContext.Users
+                .AsNoTracking()
+                .Where(u => u.AvatarUrl == storedUrl)
+                .Select(u => new
+                {
+                    ContentType = u.AvatarContentType,
+                    Allowed = true
+                })
+                .FirstOrDefaultAsync(cancellationToken),
+            _ => null
+        };
 
         if (access is null)
         {
-            await AuditAsync("file_access_missing", "denied", currentUserId, bucket, safeFileName, "file is not attached to a message", cancellationToken);
+            await AuditAsync("file_access_missing", "denied", currentUserId, bucket, safeFileName, "file is not attached to a known resource", cancellationToken);
             return NotFound();
         }
 

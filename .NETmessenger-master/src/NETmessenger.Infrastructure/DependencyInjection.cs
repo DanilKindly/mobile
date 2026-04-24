@@ -41,6 +41,7 @@ public static class DependencyInjection
         services.AddScoped<IMessageService, MessageService>();
         services.AddScoped<IVoiceStorage, LocalVoiceStorage>();
         services.AddScoped<IMediaStorage, LocalMediaStorage>();
+        services.AddScoped<IAvatarStorage, LocalAvatarStorage>();
         services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IPushNotificationService, PushNotificationService>();

@@ -90,6 +90,83 @@ public class UsersController(
         return user is null ? NotFound() : Ok(user);
     }
 
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<ActionResult<GetUserDto>> GetMe(CancellationToken cancellationToken)
+    {
+        var currentUserId = User.GetRequiredUserId();
+        var user = await userService.GetByIdAsync(currentUserId, cancellationToken);
+        return user is null ? NotFound() : Ok(user);
+    }
+
+    [HttpPut("me/avatar")]
+    [Authorize]
+    [EnableRateLimiting("files")]
+    [RequestSizeLimit(5 * 1024 * 1024)]
+    public async Task<ActionResult<GetUserDto>> UploadAvatar(
+        [FromForm] IFormFile? avatar,
+        CancellationToken cancellationToken)
+    {
+        if (avatar is null || avatar.Length == 0)
+        {
+            return BadRequest(new { error = "Avatar file is required." });
+        }
+
+        try
+        {
+            var currentUserId = User.GetRequiredUserId();
+            if (await abuseGuard.IsBlockedAsync(currentUserId, cancellationToken))
+            {
+                await AuditAsync("blocked_user_avatar_upload", "denied", currentUserId, "users", currentUserId.ToString("D"), "user is blocked", cancellationToken);
+                return Forbid();
+            }
+
+            await using var stream = avatar.OpenReadStream();
+            var user = await userService.UpdateAvatarAsync(
+                currentUserId,
+                stream,
+                avatar.FileName,
+                avatar.ContentType ?? string.Empty,
+                avatar.Length,
+                cancellationToken);
+
+            await AuditAsync("user_avatar_upload", "success", currentUserId, "users", currentUserId.ToString("D"), null, cancellationToken);
+            return Ok(user);
+        }
+        catch (ResourceNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (DomainValidationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpDelete("me/avatar")]
+    [Authorize]
+    [EnableRateLimiting("files")]
+    public async Task<ActionResult<GetUserDto>> DeleteAvatar(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var currentUserId = User.GetRequiredUserId();
+            if (await abuseGuard.IsBlockedAsync(currentUserId, cancellationToken))
+            {
+                await AuditAsync("blocked_user_avatar_delete", "denied", currentUserId, "users", currentUserId.ToString("D"), "user is blocked", cancellationToken);
+                return Forbid();
+            }
+
+            var user = await userService.DeleteAvatarAsync(currentUserId, cancellationToken);
+            await AuditAsync("user_avatar_delete", "success", currentUserId, "users", currentUserId.ToString("D"), null, cancellationToken);
+            return Ok(user);
+        }
+        catch (ResourceNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
     [HttpPost("register")]
     [EnableRateLimiting("auth-register")]
     public async Task<ActionResult<AuthResponseDto>> Register(

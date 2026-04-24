@@ -12,6 +12,14 @@ public interface IUserService
         CancellationToken cancellationToken);
     Task<GetUserDto?> GetByIdAsync(Guid userId, CancellationToken cancellationToken);
     Task<GetUserDto> UpdateAsync(Guid userId, UpdateUserDto dto, CancellationToken cancellationToken);
+    Task<GetUserDto> UpdateAvatarAsync(
+        Guid userId,
+        Stream avatarStream,
+        string originalFileName,
+        string contentType,
+        long sizeBytes,
+        CancellationToken cancellationToken);
+    Task<GetUserDto> DeleteAvatarAsync(Guid userId, CancellationToken cancellationToken);
 
     Task<AuthResponseDto> RegisterAsync(RegisterUserDto dto, CancellationToken cancellationToken);
     Task<AuthResponseDto> LoginAsync(LoginUserDto dto, CancellationToken cancellationToken);
