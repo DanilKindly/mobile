@@ -2,3 +2,5 @@ demo-media.txt
 demo-voice.webm
 *.tmp
 *.bak
+.vercel
+.env*.local
